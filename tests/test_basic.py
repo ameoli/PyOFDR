@@ -111,11 +111,47 @@ class TestMachZehnder:
 
 class TestDetector:
 
-    def test_analog_output_exists(self):
+    def _run_detector(self, **det_overrides):
+        cfg = {**CFG, "detection": {**CFG["detection"], **det_overrides}}
         acq = Acquisition()
         for step_cls in [FiberGenerator, SweptLaser, MachZehnder, Detector]:
-            acq = step_cls(CFG).process(acq)
+            acq = step_cls(cfg).process(acq)
+        return acq
+
+    def test_analog_output_exists(self):
+        acq = self._run_detector()
         assert acq.analog_main is not None
+
+    def test_shot_noise_increases_variance(self):
+        """Signal with shot noise should have more variance than without."""
+        acq_quiet = self._run_detector(shot_noise=False, thermal_nep=0, dark_current=0)
+        acq_noisy = self._run_detector(shot_noise=True, thermal_nep=0, dark_current=0)
+        assert np.var(acq_noisy.analog_main) > np.var(acq_quiet.analog_main)
+
+    def test_thermal_noise_increases_variance(self):
+        acq_quiet = self._run_detector(shot_noise=False, thermal_nep=0, dark_current=0)
+        acq_noisy = self._run_detector(shot_noise=False, thermal_nep=1e-11, dark_current=0)
+        assert np.var(acq_noisy.analog_main) > np.var(acq_quiet.analog_main)
+
+    def test_no_noise_gives_deterministic_output(self):
+        """With all noise off, same seed should give identical output."""
+        a = self._run_detector(shot_noise=False, thermal_nep=0, dark_current=0)
+        b = self._run_detector(shot_noise=False, thermal_nep=0, dark_current=0)
+        np.testing.assert_array_equal(a.analog_main, b.analog_main)
+
+    def test_dark_current_adds_noise_even_with_zero_signal(self):
+        """Dark current noise should be present even if photocurrent is zero."""
+        cfg = {**CFG, "detection": {"responsivity": 1.0, "shot_noise": False,
+                                     "thermal_nep": 0, "dark_current": 1e-6}}
+        acq = Acquisition()
+        acq = FiberGenerator(cfg).process(acq)
+        acq = SweptLaser(cfg).process(acq)
+        acq = MachZehnder(cfg).process(acq)
+        # zero out the photocurrent to isolate dark current
+        acq.photocurrent_main = np.zeros_like(acq.photocurrent_main)
+        acq = Detector(cfg).process(acq)
+        # should not be all zeros -- dark current adds noise
+        assert np.any(acq.analog_main != 0)
 
 
 class TestADC:

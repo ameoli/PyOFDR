@@ -17,6 +17,9 @@ optics:
 
 detection:
   responsivity: 1.0             # [A/W]
+  shot_noise: true
+  thermal_nep: 1.0e-11          # [W/sqrt(Hz)]
+  dark_current: 1.0e-9          # [A]
 
 adc:
   bits: 16
