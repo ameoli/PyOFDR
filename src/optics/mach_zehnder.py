@@ -37,9 +37,13 @@ class MachZehnder(PipelineStep):
         n_z = len(acq.fiber_profile)
         eta = self.splitting_ratio
 
+        # weighted profile: Rayleigh phasors * attenuation envelope
+        weighted = acq.fiber_profile.copy()
+        if acq.attenuation_envelope is not None:
+            weighted = weighted * acq.attenuation_envelope
 
         h = np.zeros(acq.n_samples, dtype=np.complex128)
-        h[:n_z] = acq.fiber_profile
+        h[:n_z] = weighted
         beat = np.fft.ifft(h) * acq.n_samples
 
         P_avg = float(np.mean(np.abs(acq.E_source) ** 2))

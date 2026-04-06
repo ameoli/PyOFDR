@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.acquisition import Acquisition
 from core.campaign import run_campaign
+from fiber.attenuation import round_trip_attenuation, dB_per_km_to_neper_per_m
 from fiber.profile import FiberGenerator
 from source.swept_laser import SweptLaser
 from optics.mach_zehnder import MachZehnder
@@ -62,6 +63,28 @@ class TestFiberGenerator:
     def test_profile_has_correct_length(self):
         acq = FiberGenerator(CFG).process(Acquisition())
         assert len(acq.fiber_profile) == len(acq.z)
+
+    def test_attenuation_envelope_exists(self):
+        acq = FiberGenerator(CFG).process(Acquisition())
+        assert acq.attenuation_envelope is not None
+        assert len(acq.attenuation_envelope) == len(acq.z)
+
+    def test_attenuation_starts_at_one(self):
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "attenuation_dB_per_km": 0.18}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        np.testing.assert_allclose(acq.attenuation_envelope[0], 1.0)
+
+    def test_attenuation_decays(self):
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "attenuation_dB_per_km": 0.18}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        # should decrease monotonically
+        assert np.all(np.diff(acq.attenuation_envelope) < 0)
+
+    def test_zero_attenuation_gives_flat_envelope(self):
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "attenuation_dB_per_km": 0.0}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        np.testing.assert_array_equal(acq.attenuation_envelope,
+                                       np.ones_like(acq.attenuation_envelope))
 
 
 class TestSweptLaser:

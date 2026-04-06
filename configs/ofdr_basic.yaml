@@ -5,6 +5,7 @@ fiber:
   length: 10.0                  # [m]
   n_core: 1.4682
   rayleigh_coefficient_dB: -82  # [dB/m]
+  attenuation_dB_per_km: 0.18   # [dB/km], SMF-28 at 1550nm
 
 source:
   center_wavelength: 1.550e-6   # [m]

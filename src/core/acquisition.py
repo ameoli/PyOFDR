@@ -13,7 +13,8 @@ class Acquisition:
     z: np.ndarray | None = None       # positions along fiber [m]
     dz: float = 0.0                   # spatial resolution [m]
 
-    fiber_profile: np.ndarray | None = None   # complex Rayleigh phasors
+    fiber_profile: np.ndarray | None = None       # complex Rayleigh phasors
+    attenuation_envelope: np.ndarray | None = None  # amplitude decay, float64
 
     t: np.ndarray | None = None       # time samples [s]
     dt: float = 0.0                   # sample interval [s]
