@@ -1,8 +1,7 @@
 """Anti-alias low pass filter.
 
-Goes between detector and ADC. 4th order Butterworth,
-cutoff at the detection bandwidth. Without this, noise
-above nyquist folds back into the signal.
+Goes between detector and ADC.
+Without this, noise above nyquist folds back into the signal.
 """
 
 from __future__ import annotations
