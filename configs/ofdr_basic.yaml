@@ -1,0 +1,25 @@
+simulation:
+  seed: 123
+
+fiber:
+  length: 10.0                  # [m]
+  n_core: 1.4682
+  rayleigh_coefficient_dB: -82  # [dB/m]
+
+source:
+  center_wavelength: 1550e-9    # [m]
+  sweep_range: 40e-9            # [m],  40 nm
+  sweep_duration: 0.01          # [s], 10 ms
+  power: 10e-3                  # [W], 10 mW
+
+optics:
+  splitting_ratio: 0.5          # 50/50 coupler
+
+detection:
+  responsivity: 1.0             # [A/W]
+
+adc:
+  bits: 16
+  sample_rate: 200e6            # [Hz], 200 MS/s
+  voltage_range: 2.0            # [V],
+  input_impedance: 50           # [ohm]
