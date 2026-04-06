@@ -21,6 +21,7 @@ from fiber.profile import FiberGenerator
 from source.swept_laser import SweptLaser
 from optics.mach_zehnder import MachZehnder
 from detection.detector import Detector
+from detection.filter import AntiAliasFilter
 from digitizer.adc import ADC
 
 # short fiber for fast tests
@@ -177,11 +178,41 @@ class TestDetector:
         assert np.any(acq.analog_main != 0)
 
 
+class TestAntiAliasFilter:
+
+    def _run_up_to_filter(self, bandwidth=1e8):
+        cfg = {**CFG, "detection": {**CFG["detection"], "bandwidth": bandwidth,
+                                     "shot_noise": False, "thermal_nep": 0,
+                                     "dark_current": 0}}
+        acq = Acquisition()
+        for cls in [FiberGenerator, SweptLaser, MachZehnder, Detector]:
+            acq = cls(cfg).process(acq)
+        return acq, cfg
+
+    def test_filter_does_not_change_shape(self):
+        acq, cfg = self._run_up_to_filter()
+        n_before = len(acq.analog_main)
+        acq = AntiAliasFilter(cfg).process(acq)
+        assert len(acq.analog_main) == n_before
+
+    def test_filter_reduces_high_freq_content(self):
+        """Narrow bandwidth should cut high frequency noise."""
+        acq_wide, cfg_wide = self._run_up_to_filter(bandwidth=1e8)
+        acq_narrow, cfg_narrow = self._run_up_to_filter(bandwidth=1e7)
+
+        acq_wide = AntiAliasFilter(cfg_wide).process(acq_wide)
+        acq_narrow = AntiAliasFilter(cfg_narrow).process(acq_narrow)
+
+        # narrower filter -> less high freq content -> smaller variance
+        assert np.var(acq_narrow.analog_main) < np.var(acq_wide.analog_main)
+
+
 class TestADC:
 
     def _run_full(self):
         acq = Acquisition()
-        for cls in [FiberGenerator, SweptLaser, MachZehnder, Detector, ADC]:
+        for cls in [FiberGenerator, SweptLaser, MachZehnder, Detector,
+                    AntiAliasFilter, ADC]:
             acq = cls(CFG).process(acq)
         return acq
 

@@ -20,8 +20,7 @@ the noise bandwith (= fs/2 for our sampled signal).
 Dark current is a small current that flows even with no light.
 It contributes additional shot noise with variance 2*e*I_dark*B.
 
-TODO: add bandwith limiting filter (should probably go between
-      detector and ADC as a separate step)
+Anti-alias filter is a separate step (detection/filter.py).
 """
 
 from __future__ import annotations

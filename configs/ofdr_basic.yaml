@@ -18,6 +18,8 @@ optics:
 
 detection:
   responsivity: 1.0             # [A/W]
+  bandwidth: 1.0e+8             # [Hz], anti-alias cutoff
+  filter_order: 4               # butterworth order
   shot_noise: true
   thermal_nep: 1.0e-11          # [W/sqrt(Hz)]
   dark_current: 1.0e-9          # [A]

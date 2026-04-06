@@ -25,6 +25,7 @@ def run_campaign(cfg: dict) -> Acquisition:
     from source.swept_laser import SweptLaser
     from optics.mach_zehnder import MachZehnder
     from detection.detector import Detector
+    from detection.filter import AntiAliasFilter
     from digitizer.adc import ADC
 
     derived = compute_derived(cfg)
@@ -39,6 +40,7 @@ def run_campaign(cfg: dict) -> Acquisition:
         SweptLaser(cfg),
         MachZehnder(cfg),
         Detector(cfg),
+        AntiAliasFilter(cfg),
         ADC(cfg),
     ]
 
