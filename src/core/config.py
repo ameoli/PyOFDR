@@ -76,5 +76,8 @@ def print_info(cfg: dict) -> None:
     headroom = (d['f_nyquist'] - d['f_beat_max']) * 1e-6
     print(f"  Nyquist headroom:   {headroom:.1f} MHz")
     if d["linewidth"] > 0:
+        L = cfg.get("fiber", {}).get("length", 10.0)
         print(f"  Linewidth:          {d['linewidth']*1e-3:.1f} kHz")
         print(f"  Coherence length:   {d['L_coh']:.1f} m")
+        if L > d["L_coh"]:
+            print(f"  WARNING: fiber length exceeds coherence length, expect fringe washout")
