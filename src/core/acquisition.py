@@ -13,21 +13,21 @@ class Acquisition:
     z: np.ndarray | None = None       # positions along fiber [m]
     dz: float = 0.0                   # spatial resolution [m]
 
-    fiber_profile: np.ndarray | None = None       # complex Rayleigh phasors
-    attenuation_envelope: np.ndarray | None = None  # amplitude decay, float64
+    # per-core arrays have shape (n_cores, ...). single-core runs use (1, ...).
+    fiber_profile: np.ndarray | None = None       # (n_cores, n_z), complex
+    attenuation_envelope: np.ndarray | None = None  # (n_z,), float
 
-    t: np.ndarray | None = None       # time samples [s]
+    t: np.ndarray | None = None       # (n_t,), time samples [s]
     dt: float = 0.0                   # sample interval [s]
     n_samples: int = 0
 
-    E_source: np.ndarray | None = None    # complex optical field
-    nu_inst: np.ndarray | None = None     # instanteneous frequency [Hz]
+    # laser is shared across cores -> 1D
+    E_source: np.ndarray | None = None    # (n_t,), complex optical field
+    nu_inst: np.ndarray | None = None     # (n_t,), instanteneous frequency [Hz]
 
-    photocurrent_main: np.ndarray | None = None   # main interferomter [W]
-
-    analog_main: np.ndarray | None = None   # voltage [V]
-
-    digital_main: np.ndarray | None = None  # quantized, int16
+    photocurrent_main: np.ndarray | None = None   # (n_cores, n_t), W
+    analog_main: np.ndarray | None = None         # (n_cores, n_t), V
+    digital_main: np.ndarray | None = None        # (n_cores, n_t), int16
 
     log: list[dict] = field(default_factory=list)
 

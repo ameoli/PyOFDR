@@ -71,6 +71,7 @@ class FiberGenerator(PipelineStep):
         acq.attenuation_envelope = attenuation
 
         acq.add_log("fiber", n_z=n_z, dz_mm=dz * 1e3,
-                     attenuation_dB_km=self.attenuation_dB_km)
+                     attenuation_dB_km=self.attenuation_dB_km,
+                     n_cores=self.n_cores)
         self._done = True
         return acq

@@ -26,6 +26,7 @@ def compute_derived(cfg: dict) -> dict:
     adc    = cfg["adc"]
 
     n        = fiber["n_core"]
+    n_cores  = fiber["n_cores"]
     wl       = source["center_wavelength"]
     sweep_wl = source["sweep_range"]
     T_sweep  = source["sweep_duration"]
@@ -58,6 +59,7 @@ def compute_derived(cfg: dict) -> dict:
         "linewidth": lw,
         "L_coh": L_coh,
         "length": L,
+        "n_cores": n_cores,
     }
 
 
@@ -66,6 +68,8 @@ def print_info(cfg: dict) -> None:
     d = compute_derived(cfg)
     print(f"PyOFDR configuration summary:")
     print(f"  Fiber length:       {d['length']:.1f} m")
+    if d["n_cores"] > 1:
+        print(f"  Cores:              {d['n_cores']}")
     print(f"  Spatial resolution: {d['dz']*1e3:.3f} mm")
     print(f"  Spatial points:     {d['n_z']}")
     print(f"  Time samples:       {d['n_t']}")
