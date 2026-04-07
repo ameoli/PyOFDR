@@ -75,5 +75,6 @@ class SweptLaser(PipelineStep):
         acq.nu_inst = nu_inst
         acq.E_source = E
 
-        acq.add_log("source", n_samples=n_samples, gamma=self.gamma)
+        acq.add_log("source", n_samples=n_samples, gamma=self.gamma,
+                     linewidth=self.linewidth)
         return acq
