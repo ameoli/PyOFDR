@@ -118,6 +118,48 @@ class TestSweptLaser:
         np.testing.assert_allclose(P, 10e-3, rtol=0.01)
 
 
+class TestPhaseNoise:
+
+    def _run(self, linewidth):
+        cfg = {**CFG, "source": {**CFG["source"], "linewidth": linewidth}}
+        acq = Acquisition()
+        acq = FiberGenerator(cfg).process(acq)
+        return SweptLaser(cfg).process(acq)
+
+    def test_zero_linewidth_matches_noiseless(self):
+        # backwards compat: linewidth=0 must give the old result
+        a = self._run(0.0)
+        b = SweptLaser(CFG).process(FiberGenerator(CFG).process(Acquisition()))
+        np.testing.assert_array_equal(a.E_source, b.E_source)
+
+    def test_nonzero_linewidth_changes_field(self):
+        a = self._run(0.0)
+        b = self._run(1e5)
+        assert not np.array_equal(a.E_source, b.E_source)
+
+    def test_power_unchanged_by_phase_noise(self):
+        # |E|^2 must stay equal to P regardless of phi noise
+        acq = self._run(1e6)
+        P = np.mean(np.abs(acq.E_source) ** 2)
+        np.testing.assert_allclose(P, 10e-3, rtol=0.01)
+
+    def test_phase_increment_variance_matches_theory(self):
+        # var(d phi_noise) ~ 2*pi*lw*dt. Cancel the optical carrier by
+        # dividing the noisy field by the noiseless one, then unwrap.
+        lw = 1e6
+        a = self._run(lw)
+        b = self._run(0.0)
+        phi_noise = np.unwrap(np.angle(a.E_source / b.E_source))
+        dphi = np.diff(phi_noise)
+        expected = 2.0 * np.pi * lw * a.dt
+        np.testing.assert_allclose(np.var(dphi), expected, rtol=0.05)
+
+    def test_same_seed_same_noise(self):
+        a = self._run(1e5)
+        b = self._run(1e5)
+        np.testing.assert_array_equal(a.E_source, b.E_source)
+
+
 class TestMachZehnder:
 
     def _make_acq(self):

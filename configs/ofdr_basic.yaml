@@ -13,6 +13,7 @@ source:
   sweep_range: "40 nm"
   sweep_duration: "10 ms"
   power: "10 mW"
+  linewidth: "100 kHz"
 
 optics:
   splitting_ratio: 0.5

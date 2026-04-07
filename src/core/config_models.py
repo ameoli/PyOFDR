@@ -52,6 +52,7 @@ class SourceConfig(_Strict):
     sweep_range:       Length    = Field(40e-9,   gt=0)
     sweep_duration:    Time      = Field(0.01,    gt=0)
     power:             Power     = Field(10e-3,   gt=0)
+    linewidth:         Frequency = Field(0.0, ge=0)   # FWHM Lorentzian
 
 
 class OpticsConfig(_Strict):

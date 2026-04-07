@@ -1,14 +1,14 @@
 """
 Physics:
     nu(t) = nu_start + gamma * t        (instantanous frequency)
-    phi(t) = 2pi * integral(nu) dt      (accumulated phase)
+    phi(t) = 2pi * integral(nu) dt + phi_noise(t)
     E(t) = sqrt(P) * exp(j*phi(t))      (optical field)
 
-No phase noise, no RIN, no sweep non-linearity for now.
-These will be important later but let's get the basic structure
-working first.
+phi_noise is a Wiener process: white frequency noise with PSD h0
+gives phase increments d_phi ~ N(0, sqrt(2*pi*linewidth*dt)). The
+linewidth here is the Lorentzian FWHM, in Hz.
 
-TODO: add phase noise
+TODO: full PSD phase noise (flicker, random walk)
 add non-linear sweep correction
 """
 
@@ -31,12 +31,15 @@ class SweptLaser(PipelineStep):
         super().__init__(config)
         source = config.get("source", {})
         adc = config.get("adc", {})
+        sim = config.get("simulation", {})
 
         self.center_wl = source.get("center_wavelength", 1550e-9)
         self.sweep_range_wl = source.get("sweep_range", 40e-9)
         self.sweep_duration = source.get("sweep_duration", 0.01)
         self.power = source.get("power", 10e-3)
+        self.linewidth = source.get("linewidth", 0.0)
         self.sample_rate = adc.get("sample_rate", 200e6)
+        self.seed = sim.get("seed", 42)
 
         # derived quantities
         self.nu_center = C / self.center_wl
@@ -58,7 +61,12 @@ class SweptLaser(PipelineStep):
         # phase = 2pi * cumulative sum (rectangle rule integration)
         phi = 2.0 * math.pi * xp.cumsum(nu_inst) * dt
 
-        # optical field -- just sqrt(P) * exp(j*phi), no noise
+        # Wiener phase noise: dphi ~ N(0, sqrt(2*pi*lw*dt))
+        if self.linewidth > 0:
+            rng = self.bk.random_generator(self.seed + 1000 + acq.sweep_index)
+            sigma = math.sqrt(2.0 * math.pi * self.linewidth * dt)
+            phi = phi + xp.cumsum(sigma * rng.standard_normal(n_samples))
+
         E = math.sqrt(self.power) * xp.exp(1j * phi)
 
         acq.t = t
