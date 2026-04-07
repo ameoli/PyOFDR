@@ -31,6 +31,7 @@ def compute_derived(cfg: dict) -> dict:
     wl = source.get("center_wavelength", 1550e-9)
     sweep_wl = source.get("sweep_range", 40e-9)
     T_sweep = source.get("sweep_duration", 0.01)
+    lw = source.get("linewidth", 0.0)
     fs = adc.get("sample_rate", 200e6)
     L = fiber.get("length", 10.0)
 
@@ -45,6 +46,9 @@ def compute_derived(cfg: dict) -> dict:
     # max beat frequency -- needs to be below Nyquist
     f_beat_max = 2 * n * gamma * L / C
 
+    # coherence length L_coh = c / (pi * n * linewidth)
+    L_coh = C / (math.pi * n * lw) if lw > 0 else float("inf")
+
     return {
         "delta_nu": delta_nu,
         "gamma": gamma,
@@ -53,6 +57,8 @@ def compute_derived(cfg: dict) -> dict:
         "n_t": n_t,
         "f_beat_max": f_beat_max,
         "f_nyquist": fs / 2,
+        "linewidth": lw,
+        "L_coh": L_coh,
     }
 
 
@@ -69,3 +75,6 @@ def print_info(cfg: dict) -> None:
     print(f"  Nyquist:            {d['f_nyquist']*1e-6:.1f} MHz")
     headroom = (d['f_nyquist'] - d['f_beat_max']) * 1e-6
     print(f"  Nyquist headroom:   {headroom:.1f} MHz")
+    if d["linewidth"] > 0:
+        print(f"  Linewidth:          {d['linewidth']*1e-3:.1f} kHz")
+        print(f"  Coherence length:   {d['L_coh']:.1f} m")
