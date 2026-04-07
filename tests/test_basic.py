@@ -296,6 +296,14 @@ class TestConfigValidation:
         assert cfg["adc"]["bits"] == 16
         assert cfg["source"]["power"] == 10e-3
 
+    def test_nyquist_violation_is_rejected(self):
+        # 1 km fiber + 1 MHz ADC -> beat blows past Nyquist
+        with pytest.raises(Exception):
+            RootConfig(
+                fiber={"length": "1 km"},
+                adc={"sample_rate": "1 MHz"},
+            )
+
 
 class TestUnitParsing:
 
@@ -336,14 +344,6 @@ class TestUnitParsing:
         # mass instead of length
         with pytest.raises(Exception):
             RootConfig(fiber={"length": "10 kg"})
-
-    def test_nyquist_violation_is_rejected(self):
-        # 1 km fiber + 1 MHz ADC -> beat blows past Nyquist
-        with pytest.raises(Exception):
-            RootConfig(
-                fiber={"length": "1 km"},
-                adc={"sample_rate": "1 MHz"},
-            )
 
 
 class TestEndToEnd:
