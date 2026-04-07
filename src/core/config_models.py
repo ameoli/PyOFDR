@@ -43,6 +43,7 @@ class SimulationConfig(_Strict):
 class FiberConfig(_Strict):
     length: Length = Field(10.0, gt=0)
     n_core: float = Field(1.4682, gt=1.0)
+    n_cores: int = Field(1, ge=1)
     rayleigh_coefficient_dB: float = -82.0
     attenuation_dB_per_km: float = Field(0.0, ge=0)
 

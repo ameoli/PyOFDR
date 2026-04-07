@@ -24,6 +24,7 @@ class FiberGenerator(PipelineStep):
 
         self.length = fiber.get("length", 10.0)
         self.n_core = fiber.get("n_core", 1.4682)
+        self.n_cores = fiber.get("n_cores", 1)
         self.rayleigh_dB = fiber.get("rayleigh_coefficient_dB", -82.0)
         self.attenuation_dB_km = fiber.get("attenuation_dB_per_km", 0.0)
         self.seed = config.get("simulation", {}).get("seed", 42)
@@ -40,7 +41,6 @@ class FiberGenerator(PipelineStep):
             return acq   # don't regenerate on subsequent sweeps
 
         xp = self.bk.xp
-        rng = self.bk.random_generator(derive_seed(self.seed, component="fiber"))
 
         # Spatial resolution: dz = c / (2 * n * delta_nu)
         dz = C / (2.0 * self.n_core * self.sweep_range_hz)
@@ -51,12 +51,16 @@ class FiberGenerator(PipelineStep):
         R_per_m = dB_to_linear(self.rayleigh_dB)
         sigma = math.sqrt(R_per_m * dz)
 
-        # Circular gaussian phasors: E[|r|^2] = sigma^2
-        # Each r(z) = sigma/sqrt(2) * (X + jY), X,Y ~ N(0,1)
-        # leading axis is the core index, n_cores = 1 for now (#14)
-        re = rng.standard_normal((1, n_z))
-        im = rng.standard_normal((1, n_z))
-        profile = (sigma / math.sqrt(2.0)) * (re + 1j * im)
+        # one independent profile per core (circular gaussian phasors)
+        parts = []
+        for c in range(self.n_cores):
+            rng_c = self.bk.random_generator(
+                derive_seed(self.seed, component="fiber", core=c)
+            )
+            re = rng_c.standard_normal(n_z)
+            im = rng_c.standard_normal(n_z)
+            parts.append((sigma / math.sqrt(2.0)) * (re + 1j * im))
+        profile = xp.stack(parts)
 
         # round-trip attenuation envelope
         attenuation = round_trip_attenuation(z, self.attenuation_dB_km, xp=xp)

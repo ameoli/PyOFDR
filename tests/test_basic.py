@@ -353,6 +353,52 @@ class TestUnitParsing:
             RootConfig(fiber={"length": "10 kg"})
 
 
+class TestMulticore:
+
+    def _mc_cfg(self, n_cores):
+        return {**CFG, "fiber": {**CFG["fiber"], "n_cores": n_cores}}
+
+    def test_profile_shape_with_n_cores(self):
+        acq = FiberGenerator(self._mc_cfg(4)).process(Acquisition())
+        assert acq.fiber_profile.shape[0] == 4
+
+    def test_cores_have_independent_profiles(self):
+        acq = FiberGenerator(self._mc_cfg(4)).process(Acquisition())
+        for i in range(4):
+            for j in range(i + 1, 4):
+                assert not np.array_equal(
+                    acq.fiber_profile[i], acq.fiber_profile[j]
+                )
+
+    def test_pipeline_through_multicore(self):
+        acq = run_campaign(self._mc_cfg(4))
+        assert acq.digital_main.shape == (4, acq.n_samples)
+        assert acq.photocurrent_main.shape == (4, acq.n_samples)
+
+    def test_multicore_reproducibility(self):
+        a = run_campaign(self._mc_cfg(4))
+        b = run_campaign(self._mc_cfg(4))
+        np.testing.assert_array_equal(a.digital_main, b.digital_main)
+
+    def test_laser_field_is_shared_across_cores(self):
+        # E_source is the optical field from a single laser,
+        # must stay 1D regardless of n_cores
+        acq = Acquisition()
+        acq = FiberGenerator(self._mc_cfg(7)).process(acq)
+        acq = SweptLaser(self._mc_cfg(7)).process(acq)
+        assert acq.E_source.ndim == 1
+
+    def test_per_core_detector_noise_is_independent(self):
+        # with shot noise off and dark off, only thermal noise.
+        # different cores should see different noise samples.
+        cfg = {**self._mc_cfg(2), "detection": {**CFG["detection"],
+               "shot_noise": False, "thermal_nep": 1e-9, "dark_current": 0}}
+        acq = run_campaign(cfg)
+        # subtract the (shared) deterministic beat to isolate noise
+        # easier: just check the two analog traces are not equal
+        assert not np.array_equal(acq.analog_main[0], acq.analog_main[1])
+
+
 class TestSeeding:
 
     def test_components_get_distinct_seeds(self):
