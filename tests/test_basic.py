@@ -18,6 +18,7 @@ from core.acquisition import Acquisition
 from core.campaign import run_campaign
 from core.config import load_config
 from core.config_models import RootConfig
+from strain_transfer import IdealTransfer
 from utils.seeding import derive_seed
 from fiber.attenuation import round_trip_attenuation, dB_per_km_to_neper_per_m
 from fiber.profile import FiberGenerator
@@ -423,6 +424,26 @@ class TestSeeding:
 
     def test_detector_seed_matches_legacy_offset(self):
         assert derive_seed(42, component="detector", sweep=7) == 42 + 2000 + 7
+
+
+class TestStrainTransfer:
+
+    def test_ideal_returns_input_unchanged(self):
+        eps = np.array([1e-6, 2e-6, 3e-6])
+        out = IdealTransfer()(eps)
+        np.testing.assert_array_equal(out, eps)
+
+    def test_ideal_works_on_zero_strain(self):
+        eps = np.zeros(100)
+        np.testing.assert_array_equal(IdealTransfer()(eps), eps)
+
+    def test_ideal_preserves_dtype(self):
+        eps = np.array([1.0, 2.0], dtype=np.float64)
+        assert IdealTransfer()(eps).dtype == np.float64
+
+    def test_ideal_accepts_list(self):
+        out = IdealTransfer()([1e-6, 2e-6])
+        assert out.shape == (2,)
 
 
 class TestEndToEnd:
