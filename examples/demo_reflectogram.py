@@ -16,13 +16,14 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from core.config import load_config
+from core.config import load_config, print_info
 from core.campaign import run_campaign
 
 
 def main():
     cfg_path = Path(__file__).parent.parent / "configs" / "ofdr_basic.yaml"
     cfg = load_config(cfg_path)
+    print_info(cfg)
     print("Running simulation...")
     acq = run_campaign(cfg)
     print(f"Done. {acq.n_samples} samples, dz = {acq.dz*1e3:.3f} mm")
