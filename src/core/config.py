@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 from pathlib import Path
 from typing import Any
 import yaml
@@ -37,8 +38,9 @@ def compute_derived(cfg: dict) -> dict:
     delta_nu = C / wl**2 * sweep_wl
     gamma = delta_nu / T_sweep       # chirp rate [Hz/s]
     dz = C / (2 * n * delta_nu)      # spatial resolution [m]
-    n_z = int(L / dz)
-    n_t = int(T_sweep * fs)
+    # match what fiber/profile.py and source/swept_laser.py actually do
+    n_z = int(math.ceil(L / dz))
+    n_t = int(math.ceil(T_sweep * fs))
 
     # max beat frequency -- needs to be below Nyquist
     f_beat_max = 2 * n * gamma * L / C
@@ -65,5 +67,5 @@ def print_info(cfg: dict) -> None:
     print(f"  Sweep range:        {d['delta_nu']*1e-9:.1f} GHz")
     print(f"  Max beat freq:      {d['f_beat_max']*1e-6:.1f} MHz")
     print(f"  Nyquist:            {d['f_nyquist']*1e-6:.1f} MHz")
-    if d["f_beat_max"] > d["f_nyquist"]:
-        print(f"  WARNING: beat frequency exeeds Nyquist!")
+    headroom = (d['f_nyquist'] - d['f_beat_max']) * 1e-6
+    print(f"  Nyquist headroom:   {headroom:.1f} MHz")
