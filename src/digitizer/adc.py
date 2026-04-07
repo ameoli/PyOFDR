@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
-
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 
@@ -28,14 +26,15 @@ class ADC(PipelineStep):
         if acq.analog_main is None:
             raise RuntimeError("ADC: analog_main is None")
 
+        xp = self.bk.xp
         half = self.n_levels // 2   # 32768 for 16-bit
 
-        clipped = np.clip(acq.analog_main, -self.v_max, self.v_max)
+        clipped = xp.clip(acq.analog_main, -self.v_max, self.v_max)
         normalized = clipped / self.v_max           # [-1, 1]
-        digital = np.floor(normalized * half).astype(np.int32)
-        digital = np.clip(digital, -half, half - 1)
+        digital = xp.floor(normalized * half).astype(xp.int32)
+        digital = xp.clip(digital, -half, half - 1)
 
-        acq.digital_main = digital.astype(np.int16)
+        acq.digital_main = digital.astype(xp.int16)
 
         acq.add_log("adc", bits=self.bits, lsb_uV=self.voltage_range / self.n_levels * 1e6)
         return acq

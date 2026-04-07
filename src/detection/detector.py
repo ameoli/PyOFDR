@@ -25,9 +25,8 @@ Anti-alias filter is a separate step (detection/filter.py).
 
 from __future__ import annotations
 
+import math
 from typing import Any
-
-import numpy as np
 
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
@@ -55,7 +54,8 @@ class Detector(PipelineStep):
         if acq.photocurrent_main is None:
             raise RuntimeError("Detector: photocurrent not set")
 
-        rng = np.random.default_rng(self.seed + 2000 + acq.sweep_index)
+        xp = self.bk.xp
+        rng = self.bk.random_generator(self.seed + 2000 + acq.sweep_index)
         n = acq.n_samples
         dt = acq.dt
 
@@ -67,18 +67,18 @@ class Detector(PipelineStep):
 
         # shot noise: sigma^2 = 2 * e * |I| * B
         if self.shot_noise_enabled:
-            shot_var = 2.0 * E_CHARGE * np.abs(I) * bw
-            I = I + np.sqrt(shot_var) * rng.standard_normal(n)
+            shot_var = 2.0 * E_CHARGE * xp.abs(I) * bw
+            I = I + xp.sqrt(shot_var) * rng.standard_normal(n)
 
         # thermal noise: sigma = R * NEP * sqrt(B)
         if self.thermal_nep > 0:
-            sigma_thermal = self.responsivity * self.thermal_nep * np.sqrt(bw)
+            sigma_thermal = self.responsivity * self.thermal_nep * math.sqrt(bw)
             I = I + sigma_thermal * rng.standard_normal(n)
 
         # dark current shot noise: sigma^2 = 2 * e * I_dark * B
         if self.dark_current > 0:
-            dark_var = 2.0 * E_CHARGE * self.dark_current * bw
-            I = I + np.sqrt(dark_var) * rng.standard_normal(n)
+            sigma_dark = math.sqrt(2.0 * E_CHARGE * self.dark_current * bw)
+            I = I + sigma_dark * rng.standard_normal(n)
 
         # transimpedance: I -> V
         acq.analog_main = I * self.impedance

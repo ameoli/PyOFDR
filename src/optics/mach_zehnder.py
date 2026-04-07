@@ -11,9 +11,8 @@ add differential phase noise at each delay
 
 from __future__ import annotations
 
+import math
 from typing import Any
-
-import numpy as np
 
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
@@ -34,22 +33,29 @@ class MachZehnder(PipelineStep):
         if acq.E_source is None:
             raise RuntimeError("Optics: E_source not set")
 
+        xp = self.bk.xp
         n_z = len(acq.fiber_profile)
         eta = self.splitting_ratio
 
         # weighted profile: Rayleigh phasors * attenuation envelope
-        weighted = acq.fiber_profile.copy()
+        weighted = acq.fiber_profile
         if acq.attenuation_envelope is not None:
             weighted = weighted * acq.attenuation_envelope
 
-        h = np.zeros(acq.n_samples, dtype=np.complex128)
-        h[:n_z] = weighted
-        beat = np.fft.ifft(h) * acq.n_samples
+        # zero-pad up to n_samples. Use concatenate (not in-place
+        # assignment) so this works on jax later, where arrays are
+        # immutable.
+        n_pad = acq.n_samples - n_z
+        h = xp.concatenate([
+            weighted.astype(xp.complex128),
+            xp.zeros(n_pad, dtype=xp.complex128),
+        ])
+        beat = self.bk.fft.ifft(h) * acq.n_samples
 
-        P_avg = float(np.mean(np.abs(acq.E_source) ** 2))
-        scale = 2.0 * np.sqrt(eta * (1.0 - eta)) * P_avg
+        P_avg = float(xp.mean(xp.abs(acq.E_source) ** 2))
+        scale = 2.0 * math.sqrt(eta * (1.0 - eta)) * P_avg
 
-        acq.photocurrent_main = scale * np.real(beat)
+        acq.photocurrent_main = scale * xp.real(beat)
 
         acq.add_log("optics", topology="mach_zehnder", scale=float(scale))
         return acq

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
-
-import numpy as np
 
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
@@ -39,25 +38,26 @@ class FiberGenerator(PipelineStep):
         if self._done:
             return acq   # don't regenerate on subsequent sweeps
 
-        rng = np.random.default_rng(self.seed)
+        xp = self.bk.xp
+        rng = self.bk.random_generator(self.seed)
 
         # Spatial resolution: dz = c / (2 * n * delta_nu)
         dz = C / (2.0 * self.n_core * self.sweep_range_hz)
-        n_z = int(np.ceil(self.length / dz))
-        z = np.arange(n_z) * dz
+        n_z = int(math.ceil(self.length / dz))
+        z = xp.arange(n_z) * dz
 
         # Rayleigh backscatter coefficient (power per meter)
         R_per_m = dB_to_linear(self.rayleigh_dB)
-        sigma = np.sqrt(R_per_m * dz)
+        sigma = math.sqrt(R_per_m * dz)
 
         # Circular gaussian phasors: E[|r|^2] = sigma^2
         # Each r(z) = sigma/sqrt(2) * (X + jY), X,Y ~ N(0,1)
         re = rng.standard_normal(n_z)
         im = rng.standard_normal(n_z)
-        profile = (sigma / np.sqrt(2.0)) * (re + 1j * im)
+        profile = (sigma / math.sqrt(2.0)) * (re + 1j * im)
 
         # round-trip attenuation envelope
-        attenuation = round_trip_attenuation(z, self.attenuation_dB_km)
+        attenuation = round_trip_attenuation(z, self.attenuation_dB_km, xp=xp)
 
         acq.z = z
         acq.dz = dz

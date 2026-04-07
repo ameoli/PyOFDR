@@ -14,9 +14,8 @@ add non-linear sweep correction
 
 from __future__ import annotations
 
+import math
 from typing import Any
-
-import numpy as np
 
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
@@ -47,19 +46,20 @@ class SweptLaser(PipelineStep):
         self.gamma = self.sweep_range_hz / self.sweep_duration   # Hz/s
 
     def process(self, acq: Acquisition) -> Acquisition:
+        xp = self.bk.xp
         dt = 1.0 / self.sample_rate
-        n_samples = int(np.ceil(self.sweep_duration * self.sample_rate))
-        t = np.arange(n_samples) * dt
+        n_samples = int(math.ceil(self.sweep_duration * self.sample_rate))
+        t = xp.arange(n_samples) * dt
 
         # instantanous frequency (linear ramp)
         nu_start = self.nu_center - self.sweep_range_hz / 2.0
         nu_inst = nu_start + self.gamma * t
 
         # phase = 2pi * cumulative sum (rectangle rule integration)
-        phi = 2.0 * np.pi * np.cumsum(nu_inst) * dt
+        phi = 2.0 * math.pi * xp.cumsum(nu_inst) * dt
 
         # optical field -- just sqrt(P) * exp(j*phi), no noise
-        E = np.sqrt(self.power) * np.exp(1j * phi)
+        E = math.sqrt(self.power) * xp.exp(1j * phi)
 
         acq.t = t
         acq.dt = dt

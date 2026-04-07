@@ -1,5 +1,6 @@
 simulation:
   seed: 123
+  backend: numpy                # numpy | cupy | jax (only numpy for now)
 
 fiber:
   length: 10.0                  # [m]

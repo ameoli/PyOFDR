@@ -8,9 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
-from scipy.signal import butter, sosfilt
-
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 
@@ -36,8 +33,9 @@ class AntiAliasFilter(PipelineStep):
         # cutoff cant exceed nyquist
         cutoff = min(self.bandwidth, nyq * 0.99)
 
-        sos = butter(self.order, cutoff / nyq, btype="low", output="sos")
-        acq.analog_main = sosfilt(sos, acq.analog_main)
+        acq.analog_main = self.bk.sosfilt_lowpass(
+            acq.analog_main, self.order, cutoff / nyq
+        )
 
         acq.add_log("filter", bandwidth_MHz=self.bandwidth * 1e-6,
                      cutoff_MHz=cutoff * 1e-6)
