@@ -31,6 +31,7 @@ from typing import Any
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 from utils.constants import E_CHARGE
+from utils.seeding import derive_seed
 
 
 class Detector(PipelineStep):
@@ -55,7 +56,9 @@ class Detector(PipelineStep):
             raise RuntimeError("Detector: photocurrent not set")
 
         xp = self.bk.xp
-        rng = self.bk.random_generator(self.seed + 2000 + acq.sweep_index)
+        rng = self.bk.random_generator(
+            derive_seed(self.seed, component="detector", sweep=acq.sweep_index)
+        )
         n = acq.n_samples
         dt = acq.dt
 

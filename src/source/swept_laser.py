@@ -20,6 +20,7 @@ from typing import Any
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 from utils.constants import C
+from utils.seeding import derive_seed
 from utils.units import wavelength_range_to_freq_range
 
 
@@ -63,7 +64,9 @@ class SweptLaser(PipelineStep):
 
         # Wiener phase noise: dphi ~ N(0, sqrt(2*pi*lw*dt))
         if self.linewidth > 0:
-            rng = self.bk.random_generator(self.seed + 1000 + acq.sweep_index)
+            rng = self.bk.random_generator(
+                derive_seed(self.seed, component="laser", sweep=acq.sweep_index)
+            )
             sigma = math.sqrt(2.0 * math.pi * self.linewidth * dt)
             phi = phi + xp.cumsum(sigma * rng.standard_normal(n_samples))
 

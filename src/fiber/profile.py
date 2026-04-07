@@ -9,6 +9,7 @@ from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 from fiber.attenuation import round_trip_attenuation
 from utils.constants import C
+from utils.seeding import derive_seed
 from utils.units import dB_to_linear, wavelength_range_to_freq_range
 
 
@@ -39,7 +40,7 @@ class FiberGenerator(PipelineStep):
             return acq   # don't regenerate on subsequent sweeps
 
         xp = self.bk.xp
-        rng = self.bk.random_generator(self.seed)
+        rng = self.bk.random_generator(derive_seed(self.seed, component="fiber"))
 
         # Spatial resolution: dz = c / (2 * n * delta_nu)
         dz = C / (2.0 * self.n_core * self.sweep_range_hz)

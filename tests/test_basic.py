@@ -18,6 +18,7 @@ from core.acquisition import Acquisition
 from core.campaign import run_campaign
 from core.config import load_config
 from core.config_models import RootConfig
+from utils.seeding import derive_seed
 from fiber.attenuation import round_trip_attenuation, dB_per_km_to_neper_per_m
 from fiber.profile import FiberGenerator
 from source.swept_laser import SweptLaser
@@ -344,6 +345,32 @@ class TestUnitParsing:
         # mass instead of length
         with pytest.raises(Exception):
             RootConfig(fiber={"length": "10 kg"})
+
+
+class TestSeeding:
+
+    def test_components_get_distinct_seeds(self):
+        s = 42
+        seeds = {
+            derive_seed(s, component="fiber"),
+            derive_seed(s, component="laser",    sweep=0),
+            derive_seed(s, component="detector", sweep=0),
+            derive_seed(s, component="adc",      sweep=0),
+        }
+        assert len(seeds) == 4
+
+    def test_core_stride_keeps_components_separated(self):
+        # detector core 0 sweep 999_999 should not collide with detector core 1 sweep 0
+        a = derive_seed(42, component="detector", core=0, sweep=999_999)
+        b = derive_seed(42, component="detector", core=1, sweep=0)
+        assert a != b
+
+    def test_laser_seed_matches_legacy_offset(self):
+        # behavior must be backwards compatible with the +1000+sweep convention
+        assert derive_seed(42, component="laser", sweep=7) == 42 + 1000 + 7
+
+    def test_detector_seed_matches_legacy_offset(self):
+        assert derive_seed(42, component="detector", sweep=7) == 42 + 2000 + 7
 
 
 class TestEndToEnd:
