@@ -278,7 +278,11 @@ class TestUnitParsing:
         assert cfg.adc.sample_rate == pytest.approx(2e8)
 
     def test_fiber_length_in_km(self):
-        cfg = RootConfig(fiber={"length": "1 km"})
+        # bump sample rate so we don't trip the Nyquist validator
+        cfg = RootConfig(
+            fiber={"length": "1 km"},
+            adc={"sample_rate": "10 GHz"},
+        )
         assert cfg.fiber.length == pytest.approx(1000.0)
 
     def test_bare_float_still_works(self):
@@ -290,6 +294,14 @@ class TestUnitParsing:
         # mass instead of length
         with pytest.raises(Exception):
             RootConfig(fiber={"length": "10 kg"})
+
+    def test_nyquist_violation_is_rejected(self):
+        # 1 km fiber + 1 MHz ADC -> beat blows past Nyquist
+        with pytest.raises(Exception):
+            RootConfig(
+                fiber={"length": "1 km"},
+                adc={"sample_rate": "1 MHz"},
+            )
 
 
 class TestEndToEnd:

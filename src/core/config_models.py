@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 from pint import UnitRegistry
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+
+from utils.constants import C as _C
 
 _ureg = UnitRegistry()
 
@@ -79,3 +81,23 @@ class RootConfig(_Strict):
     optics:     OpticsConfig     = Field(default_factory=OpticsConfig)
     detection:  DetectionConfig  = Field(default_factory=DetectionConfig)
     adc:        ADCConfig        = Field(default_factory=ADCConfig)
+
+    @model_validator(mode="after")
+    def _check_nyquist(self):
+        wl   = self.source.center_wavelength
+        dwl  = self.source.sweep_range
+        T    = self.source.sweep_duration
+        L    = self.fiber.length
+        n    = self.fiber.n_core
+        fs   = self.adc.sample_rate
+
+        sweep_hz   = _C / wl**2 * dwl
+        gamma      = sweep_hz / T
+        f_beat_max = 2.0 * n * gamma * L / _C
+        f_nyq      = fs / 2.0
+        if f_beat_max >= f_nyq:
+            raise ValueError(
+                f"max beat freq {f_beat_max*1e-6:.1f} MHz "
+                f"exceeds Nyquist {f_nyq*1e-6:.1f} MHz"
+            )
+        return self
