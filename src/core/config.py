@@ -18,22 +18,20 @@ def load_config(path: str | Path) -> dict[str, Any]:
 
 
 def compute_derived(cfg: dict) -> dict:
-    """Compute derived physical quantities from config.
+    """Compute derived physical quantities from config."""
+    # validate first so we can trust the fields and not duplicate defaults
+    cfg = RootConfig(**cfg).model_dump()
+    fiber  = cfg["fiber"]
+    source = cfg["source"]
+    adc    = cfg["adc"]
 
-    Returns a dict with stuff like spatial resolution, sweep rate, etc.
-    Usefull for sanity checks and info printing.
-    """
-    fiber = cfg.get("fiber", {})
-    source = cfg.get("source", {})
-    adc = cfg.get("adc", {})
-
-    n = fiber.get("n_core", 1.4682)
-    wl = source.get("center_wavelength", 1550e-9)
-    sweep_wl = source.get("sweep_range", 40e-9)
-    T_sweep = source.get("sweep_duration", 0.01)
-    lw = source.get("linewidth", 0.0)
-    fs = adc.get("sample_rate", 200e6)
-    L = fiber.get("length", 10.0)
+    n        = fiber["n_core"]
+    wl       = source["center_wavelength"]
+    sweep_wl = source["sweep_range"]
+    T_sweep  = source["sweep_duration"]
+    lw       = source["linewidth"]
+    fs       = adc["sample_rate"]
+    L        = fiber["length"]
 
     # frequency range from wavelenght range
     delta_nu = C / wl**2 * sweep_wl
@@ -59,6 +57,7 @@ def compute_derived(cfg: dict) -> dict:
         "f_nyquist": fs / 2,
         "linewidth": lw,
         "L_coh": L_coh,
+        "length": L,
     }
 
 
@@ -66,7 +65,7 @@ def print_info(cfg: dict) -> None:
     """Print a summary of the configuration."""
     d = compute_derived(cfg)
     print(f"PyOFDR configuration summary:")
-    print(f"  Fiber length:       {cfg.get('fiber', {}).get('length', 10.0):.1f} m")
+    print(f"  Fiber length:       {d['length']:.1f} m")
     print(f"  Spatial resolution: {d['dz']*1e3:.3f} mm")
     print(f"  Spatial points:     {d['n_z']}")
     print(f"  Time samples:       {d['n_t']}")
@@ -76,8 +75,7 @@ def print_info(cfg: dict) -> None:
     headroom = (d['f_nyquist'] - d['f_beat_max']) * 1e-6
     print(f"  Nyquist headroom:   {headroom:.1f} MHz")
     if d["linewidth"] > 0:
-        L = cfg.get("fiber", {}).get("length", 10.0)
         print(f"  Linewidth:          {d['linewidth']*1e-3:.1f} kHz")
         print(f"  Coherence length:   {d['L_coh']:.1f} m")
-        if L > d["L_coh"]:
+        if d["length"] > d["L_coh"]:
             print(f"  WARNING: fiber length exceeds coherence length, expect fringe washout")
