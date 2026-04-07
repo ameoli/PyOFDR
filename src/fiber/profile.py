@@ -53,8 +53,9 @@ class FiberGenerator(PipelineStep):
 
         # Circular gaussian phasors: E[|r|^2] = sigma^2
         # Each r(z) = sigma/sqrt(2) * (X + jY), X,Y ~ N(0,1)
-        re = rng.standard_normal(n_z)
-        im = rng.standard_normal(n_z)
+        # leading axis is the core index, n_cores = 1 for now (#14)
+        re = rng.standard_normal((1, n_z))
+        im = rng.standard_normal((1, n_z))
         profile = (sigma / math.sqrt(2.0)) * (re + 1j * im)
 
         # round-trip attenuation envelope

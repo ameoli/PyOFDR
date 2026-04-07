@@ -68,7 +68,13 @@ class TestFiberGenerator:
 
     def test_profile_has_correct_length(self):
         acq = FiberGenerator(CFG).process(Acquisition())
-        assert len(acq.fiber_profile) == len(acq.z)
+        assert acq.fiber_profile.shape[-1] == len(acq.z)
+
+    def test_profile_is_2d_with_core_axis(self):
+        # leading axis is the core index, n_cores = 1 for now (#14)
+        acq = FiberGenerator(CFG).process(Acquisition())
+        assert acq.fiber_profile.ndim == 2
+        assert acq.fiber_profile.shape[0] == 1
 
     def test_attenuation_envelope_exists(self):
         acq = FiberGenerator(CFG).process(Acquisition())
@@ -172,7 +178,7 @@ class TestMachZehnder:
     def test_photocurrent_exists(self):
         acq = self._make_acq()
         assert acq.photocurrent_main is not None
-        assert len(acq.photocurrent_main) == acq.n_samples
+        assert acq.photocurrent_main.shape[-1] == acq.n_samples
 
     def test_photocurrent_is_real(self):
         acq = self._make_acq()
@@ -383,7 +389,8 @@ class TestEndToEnd:
     def test_reflectogram_has_energy_in_fiber_region(self):
         """The FFT should show most energy in the first N_z bins."""
         acq = run_campaign(CFG)
-        spectrum = np.fft.fft(acq.digital_main.astype(np.float64))
+        # take core 0
+        spectrum = np.fft.fft(acq.digital_main[0].astype(np.float64))
         n_half = len(spectrum) // 2
         mag = np.abs(spectrum[:n_half])
 

@@ -34,23 +34,22 @@ class MachZehnder(PipelineStep):
             raise RuntimeError("Optics: E_source not set")
 
         xp = self.bk.xp
-        n_z = len(acq.fiber_profile)
+        n_c, n_z = acq.fiber_profile.shape
         eta = self.splitting_ratio
 
         # weighted profile: Rayleigh phasors * attenuation envelope
+        # broadcast (n_c, n_z) * (n_z,) -> (n_c, n_z)
         weighted = acq.fiber_profile
         if acq.attenuation_envelope is not None:
             weighted = weighted * acq.attenuation_envelope
 
-        # zero-pad up to n_samples. Use concatenate (not in-place
-        # assignment) so this works on jax later, where arrays are
-        # immutable.
+        # zero-pad up to n_samples along the time axis
         n_pad = acq.n_samples - n_z
         h = xp.concatenate([
             weighted.astype(xp.complex128),
-            xp.zeros(n_pad, dtype=xp.complex128),
-        ])
-        beat = self.bk.fft.ifft(h) * acq.n_samples
+            xp.zeros((n_c, n_pad), dtype=xp.complex128),
+        ], axis=-1)
+        beat = self.bk.fft.ifft(h, axis=-1) * acq.n_samples
 
         P_avg = float(xp.mean(xp.abs(acq.E_source) ** 2))
         scale = 2.0 * math.sqrt(eta * (1.0 - eta)) * P_avg

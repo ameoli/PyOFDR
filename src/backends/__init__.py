@@ -57,10 +57,11 @@ class NumpyBackend:
     def sosfilt_lowpass(self, x, order: int, cutoff_norm: float):
         """Butterworth low-pass via SOS filtering.
 
-        cutoff_norm is normalized to Nyquist (in [0, 1]).
+        cutoff_norm is normalized to Nyquist (in [0, 1]). Filters along
+        the last axis so it works for 1D and (n_cores, n_t) inputs.
         """
         sos = butter(order, cutoff_norm, btype="low", output="sos")
-        return sosfilt(sos, x)
+        return sosfilt(sos, x, axis=-1)
 
 
 _DEFAULT: NumpyBackend | None = None

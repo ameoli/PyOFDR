@@ -28,8 +28,8 @@ def main():
     acq = run_campaign(cfg)
     print(f"Done. {acq.n_samples} samples, dz = {acq.dz*1e3:.3f} mm")
 
-    # -- reflectogram --
-    beat = acq.digital_main.astype(np.float64)
+    # -- reflectogram (core 0) --
+    beat = acq.digital_main[0].astype(np.float64)
     H = np.fft.fft(beat)
     n_half = len(H) // 2
     z = np.arange(n_half) * acq.dz
