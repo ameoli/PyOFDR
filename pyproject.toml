@@ -9,6 +9,17 @@ description = "OFDR simulator for distributed fiber sensing"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
+authors = [
+    {name = "Alessandro Meoli", email = "alessandromeoli@gmail.com"},
+]
+keywords = ["ofdr", "fiber sensing", "rayleigh", "interferometry", "simulation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
@@ -16,6 +27,10 @@ dependencies = [
     "pydantic>=2.0",
     "pint>=0.22",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ameoli/PyOFDR"
+Issues = "https://github.com/ameoli/PyOFDR/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
