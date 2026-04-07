@@ -16,6 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.acquisition import Acquisition
 from core.campaign import run_campaign
+from core.config import load_config
+from core.config_models import RootConfig
 from fiber.attenuation import round_trip_attenuation, dB_per_km_to_neper_per_m
 from fiber.profile import FiberGenerator
 from source.swept_laser import SweptLaser
@@ -23,6 +25,8 @@ from optics.mach_zehnder import MachZehnder
 from detection.detector import Detector
 from detection.filter import AntiAliasFilter
 from digitizer.adc import ADC
+
+REPO_ROOT = Path(__file__).parent.parent
 
 # short fiber for fast tests
 CFG = {
@@ -224,6 +228,31 @@ class TestADC:
         acq = self._run_full()
         assert np.all(acq.digital_main >= -32768)
         assert np.all(acq.digital_main <= 32767)
+
+
+class TestConfigValidation:
+
+    def test_load_basic_config(self):
+        cfg = load_config(REPO_ROOT / "configs" / "ofdr_basic.yaml")
+        assert cfg["fiber"]["length"] == 10.0
+        assert cfg["simulation"]["backend"] == "numpy"
+
+    def test_typo_in_field_is_rejected(self):
+        with pytest.raises(Exception):
+            RootConfig(fiber={"lenght": 10.0})
+
+    def test_negative_length_is_rejected(self):
+        with pytest.raises(Exception):
+            RootConfig(fiber={"length": -1.0})
+
+    def test_unknown_backend_is_rejected(self):
+        with pytest.raises(Exception):
+            RootConfig(simulation={"backend": "tensorflow"})
+
+    def test_empty_config_uses_defaults(self):
+        cfg = RootConfig().model_dump()
+        assert cfg["adc"]["bits"] == 16
+        assert cfg["source"]["power"] == 10e-3
 
 
 class TestEndToEnd:

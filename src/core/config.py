@@ -2,16 +2,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import yaml
+from core.config_models import RootConfig
 from utils.constants import C
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
-    """Load YAML config file."""
+    """Load and validate YAML config. Returns a plain dict."""
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
     with open(path) as f:
-        return yaml.safe_load(f)
+        raw = yaml.safe_load(f) or {}
+    return RootConfig(**raw).model_dump()
 
 
 def compute_derived(cfg: dict) -> dict:
