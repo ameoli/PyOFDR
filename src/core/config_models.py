@@ -56,6 +56,35 @@ class SourceConfig(_Strict):
     linewidth:         Frequency = Field(0.0, ge=0)   # FWHM Lorentzian
 
 
+class StrainSegment(_Strict):
+    start:   Length
+    end:     Length
+    epsilon: float
+
+    @model_validator(mode="after")
+    def _check_order(self):
+        if self.end <= self.start:
+            raise ValueError(f"strain segment: end ({self.end}) must be > start ({self.start})")
+        return self
+
+
+class CoxParams(_Strict):
+    beta: float = Field(..., gt=0)   # 1/m
+
+
+class StrainConfig(_Strict):
+    segments: list[StrainSegment] = Field(default_factory=list)
+    photoelastic_coefficient: float = Field(0.22, ge=0, lt=1)
+    transfer: Literal["ideal", "cox"] = "ideal"
+    cox: CoxParams | None = None
+
+    @model_validator(mode="after")
+    def _cox_needs_params(self):
+        if self.transfer == "cox" and self.cox is None:
+            raise ValueError("strain.transfer=cox requires a strain.cox block with beta")
+        return self
+
+
 class OpticsConfig(_Strict):
     splitting_ratio: float = Field(0.5, gt=0, lt=1)
 
@@ -81,6 +110,7 @@ class RootConfig(_Strict):
     fiber:      FiberConfig      = Field(default_factory=FiberConfig)
     source:     SourceConfig     = Field(default_factory=SourceConfig)
     optics:     OpticsConfig     = Field(default_factory=OpticsConfig)
+    strain:     StrainConfig     = Field(default_factory=StrainConfig)
     detection:  DetectionConfig  = Field(default_factory=DetectionConfig)
     adc:        ADCConfig        = Field(default_factory=ADCConfig)
 

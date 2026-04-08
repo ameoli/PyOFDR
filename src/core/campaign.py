@@ -22,6 +22,7 @@ def run_campaign(cfg: dict) -> Acquisition:
     # import here to avoid circular imports
     # (there's probably a better way to do this)
     from fiber.profile import FiberGenerator
+    from fiber.strain import StrainPerturbation
     from source.swept_laser import SweptLaser
     from optics.mach_zehnder import MachZehnder
     from detection.detector import Detector
@@ -37,6 +38,7 @@ def run_campaign(cfg: dict) -> Acquisition:
     # TODO: make this configurable / use a registry pattern
     steps = [
         FiberGenerator(cfg),
+        StrainPerturbation(cfg),
         SweptLaser(cfg),
         MachZehnder(cfg),
         Detector(cfg),
