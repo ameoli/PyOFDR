@@ -281,6 +281,68 @@ class TestADC:
         assert np.all(acq.digital_main <= 32767)
 
 
+class TestADCEnob:
+
+    def _cfg(self, **adc_overrides):
+        cfg = {**CFG, "adc": {**CFG["adc"], **adc_overrides}}
+        # turn off all detector noise so the only noise floor we measure
+        # is whatever the ADC adds
+        cfg["detection"] = {**CFG["detection"], "shot_noise": False,
+                             "thermal_nep": 0, "dark_current": 0}
+        return cfg
+
+    def test_enob_unset_matches_legacy(self):
+        a = run_campaign(self._cfg())
+        b = run_campaign(self._cfg(enob=None))
+        np.testing.assert_array_equal(a.digital_main, b.digital_main)
+
+    def test_enob_equal_to_bits_is_noop(self):
+        a = run_campaign(self._cfg())
+        b = run_campaign(self._cfg(enob=16))
+        np.testing.assert_array_equal(a.digital_main, b.digital_main)
+
+    def test_enob_below_bits_increases_noise(self):
+        # quiet baseline (no detector noise) -> any extra variance is from ENOB
+        clean = run_campaign(self._cfg())
+        noisy = run_campaign(self._cfg(enob=10))
+        assert np.var(noisy.digital_main.astype(np.float64)) > \
+               np.var(clean.digital_main.astype(np.float64))
+
+    def test_enob_lower_means_more_noise(self):
+        v8  = np.var(run_campaign(self._cfg(enob=8 )).digital_main.astype(np.float64))
+        v12 = np.var(run_campaign(self._cfg(enob=12)).digital_main.astype(np.float64))
+        assert v8 > v12
+
+    def test_enob_above_bits_is_rejected(self):
+        with pytest.raises(ValueError):
+            ADC(self._cfg(bits=12, enob=14))
+
+    def test_enob_zero_is_rejected(self):
+        with pytest.raises(ValueError):
+            ADC(self._cfg(enob=0))
+
+    def test_enob_noise_floor_matches_theory(self):
+        # feed a known DC voltage, see whether the digital noise variance
+        # matches sigma_total^2 = (V_range / (2^enob * sqrt(12)))^2
+        cfg = self._cfg(enob=10)
+        acq = Acquisition()
+        acq.dt = 1.0 / cfg["adc"]["sample_rate"]
+        # 1 core, 50000 samples, 0V analog input
+        acq.analog_main = np.zeros((1, 50000), dtype=np.float64)
+        acq.sweep_index = 0
+        ADC(cfg).process(acq)
+        # convert digital code back to voltage
+        v_lsb = cfg["adc"]["voltage_range"] / 2 ** cfg["adc"]["bits"]
+        v = acq.digital_main.astype(np.float64) * v_lsb
+        sigma_obs = np.std(v)
+        sigma_th  = cfg["adc"]["voltage_range"] / (2 ** 10 * np.sqrt(12))
+        np.testing.assert_allclose(sigma_obs, sigma_th, rtol=0.05)
+
+    def test_pydantic_rejects_enob_above_bits(self):
+        with pytest.raises(Exception):
+            RootConfig(adc={"bits": 12, "enob": 14})
+
+
 class TestConfigValidation:
 
     def test_load_basic_config(self):

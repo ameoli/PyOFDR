@@ -99,10 +99,17 @@ class DetectionConfig(_Strict):
 
 
 class ADCConfig(_Strict):
-    bits:            int        = Field(16, ge=1)
-    sample_rate:     Frequency  = Field(2.0e8, gt=0)
-    voltage_range:   Voltage    = Field(2.0,   gt=0)
-    input_impedance: Resistance = Field(50.0,  gt=0)
+    bits:            int          = Field(16, ge=1)
+    enob:            float | None = Field(None, gt=0)
+    sample_rate:     Frequency    = Field(2.0e8, gt=0)
+    voltage_range:   Voltage      = Field(2.0,   gt=0)
+    input_impedance: Resistance   = Field(50.0,  gt=0)
+
+    @model_validator(mode="after")
+    def _enob_within_bits(self):
+        if self.enob is not None and self.enob > self.bits:
+            raise ValueError(f"adc.enob ({self.enob}) must be <= adc.bits ({self.bits})")
+        return self
 
 
 class RootConfig(_Strict):
