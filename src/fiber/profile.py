@@ -19,20 +19,20 @@ class FiberGenerator(PipelineStep):
 
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
-        fiber = config.get("fiber", {})
-        source = config.get("source", {})
+        fiber = self.config["fiber"]
+        source = self.config["source"]
 
-        self.length = fiber.get("length", 10.0)
-        self.n_core = fiber.get("n_core", 1.4682)
-        self.n_cores = fiber.get("n_cores", 1)
-        self.rayleigh_dB = fiber.get("rayleigh_coefficient_dB", -82.0)
-        self.attenuation_dB_km = fiber.get("attenuation_dB_per_km", 0.0)
-        self.seed = config.get("simulation", {}).get("seed", 42)
+        self.length = fiber["length"]
+        self.n_core = fiber["n_core"]
+        self.n_cores = fiber["n_cores"]
+        self.rayleigh_dB = fiber["rayleigh_coefficient_dB"]
+        self.attenuation_dB_km = fiber["attenuation_dB_per_km"]
+        self.seed = self.config["simulation"]["seed"]
 
         # we need the sweep range to compute dz
-        center_wl = source.get("center_wavelength", 1550e-9)
-        sweep_wl = source.get("sweep_range", 40e-9)
-        self.sweep_range_hz = wavelength_range_to_freq_range(center_wl, sweep_wl)
+        self.sweep_range_hz = wavelength_range_to_freq_range(
+            source["center_wavelength"], source["sweep_range"]
+        )
 
         self._done = False
 

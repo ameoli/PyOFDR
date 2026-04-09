@@ -30,17 +30,15 @@ class SweptLaser(PipelineStep):
 
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
-        source = config.get("source", {})
-        adc = config.get("adc", {})
-        sim = config.get("simulation", {})
+        source = self.config["source"]
 
-        self.center_wl = source.get("center_wavelength", 1550e-9)
-        self.sweep_range_wl = source.get("sweep_range", 40e-9)
-        self.sweep_duration = source.get("sweep_duration", 0.01)
-        self.power = source.get("power", 10e-3)
-        self.linewidth = source.get("linewidth", 0.0)
-        self.sample_rate = adc.get("sample_rate", 200e6)
-        self.seed = sim.get("seed", 42)
+        self.center_wl = source["center_wavelength"]
+        self.sweep_range_wl = source["sweep_range"]
+        self.sweep_duration = source["sweep_duration"]
+        self.power = source["power"]
+        self.linewidth = source["linewidth"]
+        self.sample_rate = self.config["adc"]["sample_rate"]
+        self.seed = self.config["simulation"]["seed"]
 
         # derived quantities
         self.nu_center = C / self.center_wl

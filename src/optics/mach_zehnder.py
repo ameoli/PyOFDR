@@ -24,8 +24,7 @@ class MachZehnder(PipelineStep):
 
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
-        optics = config.get("optics", {})
-        self.splitting_ratio = optics.get("splitting_ratio", 0.5)
+        self.splitting_ratio = self.config["optics"]["splitting_ratio"]
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.fiber_profile is None:

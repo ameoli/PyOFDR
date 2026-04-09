@@ -40,16 +40,15 @@ class Detector(PipelineStep):
 
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
-        det = config.get("detection", {})
-        adc = config.get("adc", {})
-        simulation = config.get("simulation", {})
+        det = self.config["detection"]
+        adc = self.config["adc"]
 
-        self.responsivity = det.get("responsivity", 1.0)       # A/W
-        self.impedance = adc.get("input_impedance", 50.0)      # ohm
-        self.shot_noise_enabled = det.get("shot_noise", True)
-        self.thermal_nep = det.get("thermal_nep", 1.0e-11)     # W/sqrt(Hz)
-        self.dark_current = det.get("dark_current", 1.0e-9)    # A
-        self.seed = simulation.get("seed", 42)
+        self.responsivity = det["responsivity"]                # A/W
+        self.impedance = adc["input_impedance"]                # ohm
+        self.shot_noise_enabled = det["shot_noise"]
+        self.thermal_nep = det["thermal_nep"]                  # W/sqrt(Hz)
+        self.dark_current = det["dark_current"]                # A
+        self.seed = self.config["simulation"]["seed"]
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.photocurrent_main is None:

@@ -34,26 +34,18 @@ class StrainPerturbation(PipelineStep):
 
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
-        strain = config.get("strain", {}) or {}
-        source = config.get("source", {})
-        fiber  = config.get("fiber", {})
+        strain = self.config["strain"]
 
-        self.segments = list(strain.get("segments", []))
-        self.p_e = strain.get("photoelastic_coefficient", 0.22)
-        self.center_wl = source.get("center_wavelength", 1550e-9)
-        self.n_core = fiber.get("n_core", 1.4682)
+        self.segments = list(strain["segments"])
+        self.p_e = strain["photoelastic_coefficient"]
+        self.center_wl = self.config["source"]["center_wavelength"]
+        self.n_core = self.config["fiber"]["n_core"]
 
-        kind = strain.get("transfer", "ideal")
+        kind = strain["transfer"]
         if kind == "ideal":
             self.transfer = IdealTransfer()
         elif kind == "cox":
-            cox = strain.get("cox") or {}
-            beta = cox.get("beta")
-            if beta is None:
-                # pydantic catches this too, but we may be called from a
-                # raw dict (tests do that), so guard here as well
-                raise ValueError("strain.transfer=cox requires strain.cox.beta")
-            self.transfer = CoxShearLag(beta=beta)
+            self.transfer = CoxShearLag(beta=strain["cox"]["beta"])
         else:
             raise ValueError(f"unknown strain.transfer: {kind!r}")
 

@@ -3,15 +3,18 @@ from abc import ABC, abstractmethod
 from typing import Any
 from backends import get_backend
 from core.acquisition import Acquisition
+from core.config_models import RootConfig
 
 class PipelineStep(ABC):
 
     name: str = "unnamed"
 
     def __init__(self, config: dict[str, Any]) -> None:
-        self.config = config
-        backend_name = config.get("simulation", {}).get("backend", "numpy")
-        self.bk = get_backend(backend_name)
+        # validate up front so steps can read fields without re-specifying
+        # defaults. tests that pass partial dicts still work because every
+        # section in RootConfig has a default_factory.
+        self.config = RootConfig(**config).model_dump()
+        self.bk = get_backend(self.config["simulation"]["backend"])
 
     @abstractmethod
     def process(self, acq: Acquisition) -> Acquisition:

@@ -18,9 +18,9 @@ class AntiAliasFilter(PipelineStep):
 
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
-        det = config.get("detection", {})
-        self.bandwidth = det.get("bandwidth", 1.0e+8)  # Hz, default 100 MHz
-        self.order = det.get("filter_order", 4)
+        det = self.config["detection"]
+        self.bandwidth = det["bandwidth"]   # Hz
+        self.order = det["filter_order"]
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.analog_main is None:

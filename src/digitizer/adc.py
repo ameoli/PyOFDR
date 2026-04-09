@@ -32,20 +32,13 @@ class ADC(PipelineStep):
 
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
-        adc = config.get("adc", {})
-        self.bits = adc.get("bits", 16)
-        self.voltage_range = adc.get("voltage_range", 2.0)
+        adc = self.config["adc"]
+        self.bits = adc["bits"]
+        self.voltage_range = adc["voltage_range"]
         self.v_max = self.voltage_range / 2.0
         self.n_levels = 2 ** self.bits
-
-        self.enob = adc.get("enob")     # may be None / unset
-        if self.enob is not None:
-            if self.enob <= 0:
-                raise ValueError(f"ADC enob must be > 0 (got {self.enob})")
-            if self.enob > self.bits:
-                raise ValueError(f"ADC enob ({self.enob}) cannot exceed bits ({self.bits})")
-
-        self.seed = config.get("simulation", {}).get("seed", 42)
+        self.enob = adc["enob"]   # may be None
+        self.seed = self.config["simulation"]["seed"]
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.analog_main is None:
