@@ -12,5 +12,5 @@ _OFFSETS = {
 _CORE_STRIDE = 1_000_000
 
 
-def derive_seed(base: int, *, component: str, core: int = 0, sweep: int = 0) -> int:
-    return base + _OFFSETS[component] + core * _CORE_STRIDE + sweep
+def derive_seed(base: int, *, component: str, core: int = 0, sweep: int = 0, sub: int = 0) -> int:
+    return base + _OFFSETS[component] + core * _CORE_STRIDE + sub * 100_000 + sweep

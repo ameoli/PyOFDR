@@ -218,6 +218,23 @@ class TestDetector:
         b = self._run_detector(shot_noise=False, thermal_nep=0, dark_current=0)
         np.testing.assert_array_equal(a.analog_main, b.analog_main)
 
+    def test_toggling_shot_noise_does_not_disturb_thermal_stream(self):
+        # regression for #22: each noise type has its own rng now, so flipping
+        # shot_noise off must not reshuffle the thermal samples.
+        def thermal_only(shot_flag):
+            cfg = {**CFG, "detection": {"responsivity": 1.0,
+                                         "shot_noise": shot_flag,
+                                         "thermal_nep": 1e-11,
+                                         "dark_current": 0}}
+            acq = Acquisition()
+            acq = FiberGenerator(cfg).process(acq)
+            acq = SweptLaser(cfg).process(acq)
+            acq = MachZehnder(cfg).process(acq)
+            acq.photocurrent_main = np.zeros_like(acq.photocurrent_main)
+            return Detector(cfg).process(acq).analog_main
+
+        np.testing.assert_array_equal(thermal_only(False), thermal_only(True))
+
     def test_dark_current_adds_noise_even_with_zero_signal(self):
         """Dark current noise should be present even if photocurrent is zero."""
         cfg = {**CFG, "detection": {"responsivity": 1.0, "shot_noise": False,

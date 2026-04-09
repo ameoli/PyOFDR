@@ -60,14 +60,19 @@ class Detector(PipelineStep):
         dt = acq.dt
         bw = 1.0 / (2.0 * dt)
 
-        # one rng per core, each detector is physically independent
-        rngs = [
-            self.bk.random_generator(
-                derive_seed(self.seed, component="detector",
-                            core=c, sweep=acq.sweep_index)
-            )
-            for c in range(n_c)
-        ]
+        # one rng per core per noise type, so toggling shot/thermal/dark
+        # doesn't reshuffle the others. each detector is physically independent.
+        def _rngs(sub: int):
+            return [
+                self.bk.random_generator(
+                    derive_seed(self.seed, component="detector",
+                                core=c, sweep=acq.sweep_index, sub=sub)
+                )
+                for c in range(n_c)
+            ]
+        rngs_shot = _rngs(0)
+        rngs_therm = _rngs(1)
+        rngs_dark = _rngs(2)
 
         # convert optical power to current
         I = acq.photocurrent_main * self.responsivity
@@ -75,19 +80,19 @@ class Detector(PipelineStep):
         # shot noise: sigma^2 = 2 * e * |I| * B
         if self.shot_noise_enabled:
             shot_var = 2.0 * E_CHARGE * xp.abs(I) * bw
-            shot = xp.stack([r.standard_normal(n) for r in rngs])
+            shot = xp.stack([r.standard_normal(n) for r in rngs_shot])
             I = I + xp.sqrt(shot_var) * shot
 
         # thermal noise: sigma = R * NEP * sqrt(B)
         if self.thermal_nep > 0:
             sigma_thermal = self.responsivity * self.thermal_nep * math.sqrt(bw)
-            therm = xp.stack([r.standard_normal(n) for r in rngs])
+            therm = xp.stack([r.standard_normal(n) for r in rngs_therm])
             I = I + sigma_thermal * therm
 
         # dark current shot noise: sigma^2 = 2 * e * I_dark * B
         if self.dark_current > 0:
             sigma_dark = math.sqrt(2.0 * E_CHARGE * self.dark_current * bw)
-            dark = xp.stack([r.standard_normal(n) for r in rngs])
+            dark = xp.stack([r.standard_normal(n) for r in rngs_dark])
             I = I + sigma_dark * dark
 
         # transimpedance: I -> V
