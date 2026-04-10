@@ -38,6 +38,7 @@ class ADC(PipelineStep):
         self.v_max = self.voltage_range / 2.0
         self.n_levels = 2 ** self.bits
         self.enob = adc["enob"]   # may be None
+        self.jitter_rms = adc["jitter_rms"]
         self.seed = self.config["simulation"]["seed"]
 
     def process(self, acq: Acquisition) -> Acquisition:
@@ -63,6 +64,26 @@ class ADC(PipelineStep):
             noise = xp.stack([r.standard_normal(n) for r in rngs])
             analog = analog + sigma_extra * noise
 
+        # aperture jitter -- each sample is taken at t + dt_err, so the
+        # voltage error is  dV/dt * dt_err  where dt_err ~ N(0, sigma_j)
+        # (first order Taylor approx, good enough for sub-ns jitter)
+        if self.jitter_rms > 0:
+            n_c, n  = analog.shape
+
+            # dV/dt via forward difference, pad last sample
+            dvdt = xp.empty_like(analog)
+            dvdt[:, :-1] = xp.diff(analog, axis=-1) / acq.dt
+            dvdt[:,  -1] = dvdt[:, -2]
+
+            jitter_rngs = [
+                self.bk.random_generator(
+                    derive_seed(self.seed, component="adc",
+                                core=c, sweep=acq.sweep_index, sub=1))
+                for c in range(n_c)
+            ]
+            dt_err = xp.stack([r.standard_normal(n) for r in jitter_rngs])
+            analog = analog  +  dvdt * self.jitter_rms * dt_err
+
         half = self.n_levels // 2   # 32768 for 16-bit
 
         clipped = xp.clip(analog, -self.v_max, self.v_max)
@@ -73,5 +94,6 @@ class ADC(PipelineStep):
         acq.digital_main = digital.astype(xp.int16)
 
         acq.add_log("adc", bits=self.bits, enob=self.enob,
+                     jitter_rms_ps=self.jitter_rms * 1e12,
                      lsb_uV=self.voltage_range / self.n_levels * 1e6)
         return acq

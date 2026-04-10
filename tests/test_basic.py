@@ -298,6 +298,56 @@ class TestADC:
         assert np.all(acq.digital_main <= 32767)
 
 
+class TestADCJitter:
+
+    def _cfg(self, **adc_overrides):
+        cfg = {**CFG, "adc": {**CFG["adc"], **adc_overrides}}
+        cfg["detection"] = {**CFG["detection"],  "shot_noise": False,
+                             "thermal_nep": 0, "dark_current": 0}
+        return cfg
+
+    def test_zero_jitter_matches_baseline(self):
+        a = run_campaign(self._cfg())
+        b = run_campaign(self._cfg(jitter_rms=0.0))
+        np.testing.assert_array_equal(a.digital_main, b.digital_main)
+
+    def test_jitter_increases_noise(self):
+        # need strong signal so dV/dt * sigma_j >> quantization step
+        cfg_base = {**self._cfg(), "source": {**CFG["source"], "power": 1.0}}
+        cfg_jit  = {**cfg_base,  "adc": {**cfg_base["adc"], "jitter_rms": 1e-9}}
+        clean = run_campaign(cfg_base)
+        noisy = run_campaign(cfg_jit)
+        assert np.var(noisy.digital_main.astype(np.float64)) > \
+               np.var(clean.digital_main.astype(np.float64))
+
+    def test_more_jitter_means_more_noise(self):
+        v_lo = np.var(run_campaign(self._cfg(jitter_rms=10e-12 )).digital_main.astype(np.float64))
+        v_hi = np.var(run_campaign(self._cfg(jitter_rms=500e-12)).digital_main.astype(np.float64))
+        assert v_hi > v_lo
+
+    def test_jitter_with_dc_input_is_silent(self):
+        # dV/dt=0 for constant signal -> jitter should add nothing
+        cfg = self._cfg(jitter_rms=1e-9)
+        acq = Acquisition()
+        acq.dt = 1.0 / cfg["adc"]["sample_rate"]
+        acq.analog_main = np.ones((1, 50000), dtype=np.float64) * 0.1
+        acq.sweep_index = 0
+        snap = acq.analog_main.copy()
+        ADC(cfg).process(acq)
+
+        acq2 = Acquisition()
+        acq2.dt  = acq.dt
+        acq2.analog_main = snap
+        acq2.sweep_index = 0
+        ADC(self._cfg(jitter_rms=0)).process(acq2)
+        np.testing.assert_array_equal(acq.digital_main, acq2.digital_main)
+
+    def test_jitter_unit_string_accepted(self):
+        from core.config_models import RootConfig
+        cfg = RootConfig(adc={"jitter_rms": "50 ps"})
+        assert cfg.adc.jitter_rms == pytest.approx(50e-12)
+
+
 class TestADCEnob:
 
     def _cfg(self, **adc_overrides):

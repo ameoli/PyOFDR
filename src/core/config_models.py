@@ -104,6 +104,7 @@ class ADCConfig(_Strict):
     sample_rate:     Frequency    = Field(2.0e8, gt=0)
     voltage_range:   Voltage      = Field(2.0,   gt=0)
     input_impedance: Resistance   = Field(50.0,  gt=0)
+    jitter_rms:      Time         = Field(0.0, ge=0)   # aperture jitter [s]
 
     @model_validator(mode="after")
     def _enob_within_bits(self):
