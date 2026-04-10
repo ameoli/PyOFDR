@@ -37,6 +37,7 @@ class SweptLaser(PipelineStep):
         self.sweep_duration = source["sweep_duration"]
         self.power = source["power"]
         self.linewidth = source["linewidth"]
+        self.rin_dB_per_Hz = source["rin_dB_per_Hz"]   # None or float
         self.sample_rate = self.config["adc"]["sample_rate"]
         self.seed = self.config["simulation"]["seed"]
 
@@ -68,7 +69,23 @@ class SweptLaser(PipelineStep):
             sigma = math.sqrt(2.0 * math.pi * self.linewidth * dt)
             phi = phi + xp.cumsum(sigma * rng.standard_normal(n_samples))
 
-        E = math.sqrt(self.power) * xp.exp(1j * phi)
+        # RIN -- relative intensity noise.  Modelled as white multiplicative
+        # noise on optical power: P(t) = P0*(1 + n(t)),  n ~ N(0, sigma_rin),
+        # sigma_rin = sqrt(RIN_linear * BW).
+        if self.rin_dB_per_Hz is not None:
+            rin_linear = 10.0 ** (self.rin_dB_per_Hz / 10.0)
+            bw  = self.sample_rate / 2.0
+            sigma_rin = math.sqrt(rin_linear * bw)
+
+            rng_rin = self.bk.random_generator(
+                derive_seed(self.seed, component="laser",
+                            sweep=acq.sweep_index, sub=1))
+            n_rin = sigma_rin  * rng_rin.standard_normal(n_samples)
+            P_noisy = self.power * (1.0 + n_rin)
+            P_noisy = xp.maximum(P_noisy, 0.0)   # shouldn't happen for realistic RIN values
+            E = xp.sqrt(P_noisy) * xp.exp(1j * phi)
+        else:
+            E = math.sqrt(self.power) * xp.exp(1j * phi)
 
         acq.t = t
         acq.dt = dt
@@ -77,5 +94,6 @@ class SweptLaser(PipelineStep):
         acq.E_source = E
 
         acq.add_log("source", n_samples=n_samples, gamma=self.gamma,
-                     linewidth=self.linewidth)
+                     linewidth=self.linewidth,
+                     rin_dB_per_Hz=self.rin_dB_per_Hz)
         return acq

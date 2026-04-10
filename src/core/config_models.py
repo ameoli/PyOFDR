@@ -54,6 +54,7 @@ class SourceConfig(_Strict):
     sweep_duration:    Time      = Field(0.01,    gt=0)
     power:             Power     = Field(10e-3,   gt=0)
     linewidth:         Frequency = Field(0.0, ge=0)   # FWHM Lorentzian
+    rin_dB_per_Hz:     float | None = None   # RIN power spectral density [dB/Hz]
 
 
 class StrainSegment(_Strict):
