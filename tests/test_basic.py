@@ -250,6 +250,52 @@ class TestDetector:
         assert np.any(acq.analog_main != 0)
 
 
+class TestBalancedDetector:
+
+    def _run(self, balanced, **det_kw):
+        cfg = {**CFG, "detection": {**CFG["detection"],
+                                     "balanced": balanced, **det_kw}}
+        acq = Acquisition()
+        for cls in [FiberGenerator, SweptLaser, MachZehnder, Detector]:
+            acq = cls(cfg).process(acq)
+        return acq
+
+    def test_balanced_false_matches_legacy(self):
+        a = self._run(False, shot_noise=False, thermal_nep=0, dark_current=0)
+        b = self._run(False, shot_noise=False, thermal_nep=0, dark_current=0)
+        np.testing.assert_array_equal(a.analog_main, b.analog_main)
+
+    def test_balanced_noiseless_same_signal(self):
+        # no noise -> balanced and single should give identical signal
+        a = self._run(False, shot_noise=False, thermal_nep=0, dark_current=0)
+        b = self._run(True,  shot_noise=False, thermal_nep=0, dark_current=0)
+        np.testing.assert_array_equal(a.analog_main, b.analog_main)
+
+    def test_balanced_reduces_thermal_noise(self):
+        # balanced halves each noise realisation (a-b)/2 -> variance is 1/2
+        single = self._run(False, shot_noise=False,
+                            thermal_nep=1e-9, dark_current=0)
+        bal    = self._run(True, shot_noise=False,
+                            thermal_nep=1e-9, dark_current=0)
+        clean  = self._run(False, shot_noise=False,
+                            thermal_nep=0, dark_current=0)
+
+        noise_single = single.analog_main  - clean.analog_main
+        noise_bal    = bal.analog_main - clean.analog_main
+        assert np.var(noise_bal) < np.var(noise_single)
+
+    def test_balanced_shot_noise_runs(self):
+        # smoke test -- balanced shot noise uses DC current, just make sure
+        # it doesn't crash
+        bal = self._run(True, shot_noise=True, thermal_nep=0, dark_current=0)
+        assert bal.analog_main is not None
+
+    def test_balanced_full_pipeline(self):
+        cfg = {**CFG, "detection": {**CFG["detection"], "balanced": True}}
+        acq = run_campaign(cfg)
+        assert acq.digital_main is not None
+
+
 class TestAntiAliasFilter:
 
     def _run_up_to_filter(self, bandwidth=1e8):

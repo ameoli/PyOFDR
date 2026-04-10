@@ -48,7 +48,15 @@ class Detector(PipelineStep):
         self.shot_noise_enabled = det["shot_noise"]
         self.thermal_nep = det["thermal_nep"]                  # W/sqrt(Hz)
         self.dark_current = det["dark_current"]                # A
+        self.balanced = det["balanced"]
         self.seed = self.config["simulation"]["seed"]
+
+        # balanced mode needs the DC current per arm for shot noise.
+        # reference arm dominates (signal is Rayleigh backscatter, tiny)
+        if self.balanced:
+            eta  = self.config["optics"]["splitting_ratio"]
+            P    = self.config["source"]["power"]
+            self.dc_current = self.responsivity  * eta * P
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.photocurrent_main is None:
@@ -69,30 +77,65 @@ class Detector(PipelineStep):
                 )
                 for c in range(n_c)
             ]
-        rngs_shot = _rngs(0)
-        rngs_therm = _rngs(1)
-        rngs_dark = _rngs(2)
 
         # convert optical power to current
         I = acq.photocurrent_main * self.responsivity
 
-        # shot noise: sigma^2 = 2 * e * |I| * B
-        if self.shot_noise_enabled:
-            shot_var = 2.0 * E_CHARGE * xp.abs(I) * bw
-            shot = xp.stack([r.standard_normal(n) for r in rngs_shot])
-            I = I + xp.sqrt(shot_var) * shot
+        if self.balanced:
+            # Balanced detection: two photodiodes see complementary MZI arms.
+            # Arm A -> I_dc + I_beat,  arm B -> I_dc - I_beat
+            # Subtraction gives 2*I_beat + noiseA - noiseB.
+            # We normalize to 1x signal by halving the noise difference,
+            # net effect is sqrt(2) less noise => 3dB SNR gain.
+            rngs_shot_a   = _rngs(0)
+            rngs_shot_b   = _rngs(3)
+            rngs_therm_a  = _rngs(1)
+            rngs_therm_b  = _rngs(4)
+            rngs_dark_a   = _rngs(2)
+            rngs_dark_b   = _rngs(5)
 
-        # thermal noise: sigma = R * NEP * sqrt(B)
-        if self.thermal_nep > 0:
-            sigma_thermal = self.responsivity * self.thermal_nep * math.sqrt(bw)
-            therm = xp.stack([r.standard_normal(n) for r in rngs_therm])
-            I = I + sigma_thermal * therm
+            if self.shot_noise_enabled:
+                # shot noise from DC current (signal arm is negligible)
+                sigma_shot = math.sqrt(2.0 * E_CHARGE * self.dc_current * bw)
+                sa = xp.stack([r.standard_normal(n) for r in rngs_shot_a])
+                sb = xp.stack([r.standard_normal(n) for r in rngs_shot_b])
+                I  = I + sigma_shot * (sa - sb) / 2.0
 
-        # dark current shot noise: sigma^2 = 2 * e * I_dark * B
-        if self.dark_current > 0:
-            sigma_dark = math.sqrt(2.0 * E_CHARGE * self.dark_current * bw)
-            dark = xp.stack([r.standard_normal(n) for r in rngs_dark])
-            I = I + sigma_dark * dark
+            if self.thermal_nep > 0:
+                sigma_thermal = self.responsivity * self.thermal_nep * math.sqrt(bw)
+                ta = xp.stack([r.standard_normal(n) for r in rngs_therm_a])
+                tb = xp.stack([r.standard_normal(n) for r in rngs_therm_b])
+                I  = I + sigma_thermal * (ta - tb) / 2.0
+
+            if self.dark_current > 0:
+                sigma_dark = math.sqrt(2.0 * E_CHARGE * self.dark_current  * bw)
+                da = xp.stack([r.standard_normal(n) for r in rngs_dark_a])
+                db = xp.stack([r.standard_normal(n) for r in rngs_dark_b])
+                I  = I + sigma_dark * (da - db) / 2.0
+
+        else:
+            # single-ended
+            rngs_shot  = _rngs(0)
+            rngs_therm = _rngs(1)
+            rngs_dark  = _rngs(2)
+
+            # shot noise: sigma^2 = 2 * e * |I| * B
+            if self.shot_noise_enabled:
+                shot_var = 2.0 * E_CHARGE * xp.abs(I) * bw
+                shot = xp.stack([r.standard_normal(n) for r in rngs_shot])
+                I = I + xp.sqrt(shot_var) * shot
+
+            # thermal noise: sigma = R * NEP * sqrt(B)
+            if self.thermal_nep > 0:
+                sigma_thermal = self.responsivity * self.thermal_nep * math.sqrt(bw)
+                therm = xp.stack([r.standard_normal(n) for r in rngs_therm])
+                I = I + sigma_thermal * therm
+
+            # dark current shot noise: sigma^2 = 2*e*I_dark*B
+            if self.dark_current > 0:
+                sigma_dark = math.sqrt(2.0 * E_CHARGE * self.dark_current * bw)
+                dark = xp.stack([r.standard_normal(n) for r in rngs_dark])
+                I = I + sigma_dark * dark
 
         # transimpedance: I -> V
         acq.analog_main = I * self.impedance
@@ -100,5 +143,6 @@ class Detector(PipelineStep):
         acq.add_log("detection",
                      shot_noise=self.shot_noise_enabled,
                      thermal_nep=self.thermal_nep,
-                     dark_current=self.dark_current)
+                     dark_current=self.dark_current,
+                     balanced=self.balanced)
         return acq

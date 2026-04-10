@@ -96,6 +96,7 @@ class DetectionConfig(_Strict):
     shot_noise:   bool      = True
     thermal_nep:  float     = Field(1.0e-11, ge=0)   # W/sqrt(Hz), bare float
     dark_current: Current   = Field(1.0e-9, ge=0)
+    balanced:     bool      = False
 
 
 class ADCConfig(_Strict):
