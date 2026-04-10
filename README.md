@@ -1,12 +1,9 @@
 # PyOFDR
-
 **Python simulator for Optical Frequency Domain Reflectometry**
-
 End-to-end OFDR simulation, from the laser sweep to digitized samples.
 Think of it as a virtual optical bench.
 
-## What it does
-
+## Key Feature
 Simulates the full OFDR measureement chain:
 
 ```
@@ -16,13 +13,11 @@ Swept laser  -->  Mach-Zehnder interferometer  -->  Fiber (Rayleigh)  -->  Detec
 Outputs digitized beat signal identical to what you'd get from a real instrument (Luna OBR etc).
 
 ## Install
-
 ```bash
 pip install -e .
 ```
 
 ## Quick start
-
 ```python
 from pyofdr import load_config, run_campaign
 
@@ -32,27 +27,16 @@ acq = run_campaign(config)
 ```
 
 ## Run tests
-
 ```bash
 pytest tests/ -v
 ```
 
 ## Status
-
-Very early prototype. Currently implmented:
-
-- [x] Rayleigh backscatter generation
-- [x] Swept laser (ideal, no noise)  
-- [x] Mach-Zehnder interferomter
-- [x] Photodetector (basic)
-- [x] ADC quantization
-- [ ] Phase noise, RIN
-- [ ] Shot noise, thermal noise
-- [ ] Fiber attenuation
-- [ ] Strain/temperature perturbations
-- [ ] HDF5 output
-- [ ] Auxiliary MZI for k-linearization
+Very early prototype
 
 ## Licence
-
 MIT
+
+## Issues & Contributions
+Report issues: https://github.com/ameoli/PyOFDR/issues
+Pull requests welcome!
