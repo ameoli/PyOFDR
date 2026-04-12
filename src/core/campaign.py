@@ -28,6 +28,7 @@ def run_campaign(cfg: dict) -> Acquisition:
     from detection.detector import Detector
     from detection.filter import AntiAliasFilter
     from digitizer.adc import ADC
+    from output.hdf5_writer import HDF5Writer
 
     derived = compute_derived(cfg)
     logger.info("PyOFDR v0.1 -- starting simulation")
@@ -49,6 +50,15 @@ def run_campaign(cfg: dict) -> Acquisition:
     acq = Acquisition()
     for step in steps:
         acq = step.process(acq)
+
+    # write to HDF5 if output path is configured
+    output_path = cfg.get("output", {}).get("path")
+    if output_path:
+        with HDF5Writer(output_path) as writer:
+            writer.write_config(cfg, derived)
+            writer.write_fiber(acq)
+            writer.write_sweep(acq, sweep_index=0)
+        logger.info("Output written to %s", output_path)
 
     logger.info("Simulation complete, %d samples generated", acq.n_samples)
     return acq

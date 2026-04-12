@@ -29,6 +29,7 @@ from optics.components import Circulator
 from detection.detector import Detector
 from detection.filter import AntiAliasFilter
 from digitizer.adc import ADC
+from output.hdf5_writer import HDF5Writer
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -806,6 +807,17 @@ class TestStrainPerturbation:
         b = self._strained(cfg)
         np.testing.assert_allclose(a.fiber_profile, b.fiber_profile)
 
+    def test_strain_field_is_stored(self):
+        cfg = self._strain_cfg([{"start": 0.2, "end": 0.5, "epsilon": 1e-4}])
+        acq = self._strained(cfg)
+        assert acq.strain_field is not None
+        assert acq.strain_field.shape == acq.z.shape
+
+    def test_no_strain_leaves_field_none(self):
+        cfg = self._strain_cfg([])
+        acq = self._strained(cfg)
+        assert acq.strain_field is None
+
     def test_strain_preserves_amplitude(self):
         cfg = self._strain_cfg([{"start": 0.2, "end": 0.5, "epsilon": 1e-4}])
         a = self._unstrained()
@@ -919,6 +931,67 @@ class TestStrainPerturbation:
         acq2 = strain.process(gen.process(Acquisition()))
         assert acq2.fiber_profile is not None
         np.testing.assert_array_equal(acq1.fiber_profile, acq2.fiber_profile)
+
+
+class TestHDF5Writer:
+
+    def test_write_and_read_back(self, tmp_path):
+        acq = run_campaign(CFG)
+        from core.config import compute_derived
+        derived = compute_derived(CFG)
+        path = tmp_path / "test_output.h5"
+        with HDF5Writer(path) as w:
+            w.write_config(CFG, derived)
+            w.write_fiber(acq)
+            w.write_sweep(acq, 0)
+
+        import h5py, json
+        with h5py.File(path, "r") as f:
+            assert "config" in f.attrs
+            cfg_back = json.loads(f.attrs["config"])
+            assert cfg_back["fiber"]["length"] == CFG["fiber"]["length"]
+
+            assert "fiber/z" in f
+            assert "sweeps/0000/digital_main" in f
+            assert "sweeps/0000/analog_main" in f
+
+            dm = f["sweeps/0000/digital_main"][:]
+            assert dm.shape == acq.digital_main.shape
+
+    def test_no_output_path_skips_writing(self, tmp_path):
+        """run_campaign with no output path should not create files."""
+        acq = run_campaign(CFG)
+        # no h5 files should exist
+        assert list(tmp_path.glob("*.h5")) == []
+
+    def test_strain_field_is_saved(self, tmp_path):
+        cfg = {**CFG, "strain": {"segments": [{"start": 0.2, "end": 0.5,
+                                                "epsilon": 1e-5}]}}
+        acq = run_campaign(cfg)
+        from core.config import compute_derived
+        derived = compute_derived(cfg)
+        path = tmp_path / "strain_out.h5"
+        with HDF5Writer(path) as w:
+            w.write_config(cfg, derived)
+            w.write_fiber(acq)
+            w.write_sweep(acq, 0)
+
+        import h5py
+        with h5py.File(path, "r") as f:
+            assert "fiber/strain_field" in f
+            sf = f["fiber/strain_field"][:]
+            assert sf.shape == acq.z.shape
+
+    def test_campaign_writes_hdf5(self, tmp_path):
+        """run_campaign should write to disk when output.path is set."""
+        path = tmp_path / "campaign.h5"
+        cfg = {**CFG, "output": {"path": str(path)}}
+        run_campaign(cfg)
+
+        import h5py
+        with h5py.File(path, "r") as f:
+            assert "sweeps/0000/digital_main" in f
+            assert "config" in f.attrs
 
 
 class TestEndToEnd:

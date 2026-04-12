@@ -122,6 +122,10 @@ class ADCConfig(_Strict):
         return self
 
 
+class OutputConfig(_Strict):
+    path: str | None = None   # None = no file output
+
+
 class RootConfig(_Strict):
     simulation: SimulationConfig = Field(default_factory=SimulationConfig)
     fiber:      FiberConfig      = Field(default_factory=FiberConfig)
@@ -130,6 +134,7 @@ class RootConfig(_Strict):
     strain:     StrainConfig     = Field(default_factory=StrainConfig)
     detection:  DetectionConfig  = Field(default_factory=DetectionConfig)
     adc:        ADCConfig        = Field(default_factory=ADCConfig)
+    output:     OutputConfig     = Field(default_factory=OutputConfig)
 
     @model_validator(mode="after")
     def _check_nyquist(self):
