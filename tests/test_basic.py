@@ -25,6 +25,7 @@ from fiber.profile import FiberGenerator
 from fiber.strain import StrainPerturbation
 from source.swept_laser import SweptLaser
 from optics.mach_zehnder import MachZehnder
+from optics.components import Circulator
 from detection.detector import Detector
 from detection.filter import AntiAliasFilter
 from digitizer.adc import ADC
@@ -99,6 +100,16 @@ class TestFiberGenerator:
         acq = FiberGenerator(cfg).process(Acquisition())
         np.testing.assert_array_equal(acq.attenuation_envelope,
                                        np.ones_like(acq.attenuation_envelope))
+
+    def test_second_call_populates_fresh_acq(self):
+        """Regression: _done cache used to early-return without setting
+        fields on the new Acquisition, breaking multi-sweep (#20)."""
+        gen = FiberGenerator(CFG)
+        acq1 = gen.process(Acquisition())
+        acq2 = gen.process(Acquisition())  # fresh acq, same step
+        assert acq2.fiber_profile is not None
+        assert acq2.z is not None
+        np.testing.assert_array_equal(acq1.fiber_profile, acq2.fiber_profile)
 
 
 class TestSweptLaser:
@@ -240,6 +251,43 @@ class TestMachZehnder:
         acq = self._make_acq()
         # should be float, not complex
         assert acq.photocurrent_main.dtype == np.float64
+
+
+class TestCirculator:
+
+    def test_zero_loss_is_unity(self):
+        c = Circulator(insertion_loss_dB=0.0)
+        assert c.insertion_loss == pytest.approx(1.0)
+        assert c.round_trip_transmission == pytest.approx(1.0)
+
+    def test_insertion_loss_correct(self):
+        c = Circulator(insertion_loss_dB=0.7)
+        expected = 10 ** (-0.7 / 20.0)
+        assert c.insertion_loss == pytest.approx(expected)
+
+    def test_round_trip_is_squared(self):
+        c = Circulator(insertion_loss_dB=1.0)
+        il = c.insertion_loss
+        assert c.round_trip_transmission == pytest.approx(il ** 2)
+
+    def test_circulator_reduces_signal(self):
+        """MZI output with circulator should be weaker than without."""
+        cfg_no_circ = {**CFG, "optics": {**CFG["optics"],
+                       "circulator": {"insertion_loss_dB": 0.0}}}
+        cfg_circ = {**CFG, "optics": {**CFG["optics"],
+                    "circulator": {"insertion_loss_dB": 3.0}}}
+        acq0 = Acquisition()
+        acq0 = FiberGenerator(cfg_no_circ).process(acq0)
+        acq0 = SweptLaser(cfg_no_circ).process(acq0)
+        acq0 = MachZehnder(cfg_no_circ).process(acq0)
+
+        acq1 = Acquisition()
+        acq1 = FiberGenerator(cfg_circ).process(acq1)
+        acq1 = SweptLaser(cfg_circ).process(acq1)
+        acq1 = MachZehnder(cfg_circ).process(acq1)
+
+        # signal power should be lower with circulator loss
+        assert np.var(acq1.photocurrent_main) < np.var(acq0.photocurrent_main)
 
 
 class TestDetector:
@@ -860,6 +908,17 @@ class TestStrainPerturbation:
         ratio0 = acq.fiber_profile[0] / ref.fiber_profile[0]
         ratio1 = acq.fiber_profile[1] / ref.fiber_profile[1]
         np.testing.assert_allclose(ratio0, ratio1)
+
+    def test_second_call_populates_fresh_acq(self):
+        """Regression for #20: strain cache must re-attach profile."""
+        cfg = {**CFG, "strain": {"segments": [{"start": 0.2, "end": 0.5,
+                                                "epsilon": 1e-5}]}}
+        gen = FiberGenerator(cfg)
+        strain = StrainPerturbation(cfg)
+        acq1 = strain.process(gen.process(Acquisition()))
+        acq2 = strain.process(gen.process(Acquisition()))
+        assert acq2.fiber_profile is not None
+        np.testing.assert_array_equal(acq1.fiber_profile, acq2.fiber_profile)
 
 
 class TestEndToEnd:

@@ -14,8 +14,8 @@ propagating / thermal-transient perturbations come later, see the
 roadmap. Host->fiber transfer is delegated to strain_transfer; default
 is ideal, cox shear-lag is available via config.
 
-TODO: when multi-sweep lands (#4), drop the _done cache and let the
-user pass a time-varying eps(t) per segment.
+TODO: let the user pass a time-varying eps(t) per segment for
+multi-sweep scenarios.
 """
 
 from __future__ import annotations
@@ -49,12 +49,13 @@ class StrainPerturbation(PipelineStep):
         else:
             raise ValueError(f"unknown strain.transfer: {kind!r}")
 
-        # mirror FiberGenerator: don't re-apply on subsequent sweeps,
-        # otherwise the phase shift would accumulate every call
-        self._done = False
+        self._cached_profile = None
 
     def process(self, acq: Acquisition) -> Acquisition:
-        if self._done or not self.segments:
+        if not self.segments:
+            return acq
+        if self._cached_profile is not None:
+            acq.fiber_profile = self._cached_profile
             return acq
         if acq.fiber_profile is None or acq.z is None:
             raise RuntimeError("StrainPerturbation: fiber_profile/z not set")
@@ -73,11 +74,11 @@ class StrainPerturbation(PipelineStep):
 
         # uniform axial strain affects every core the same way
         acq.fiber_profile = acq.fiber_profile * xp.exp(1j * phase)
+        self._cached_profile = acq.fiber_profile
 
         acq.add_log("strain",
                      n_segments=len(self.segments),
                      transfer=type(self.transfer).__name__,
                      max_eps=float(xp.max(xp.abs(eps_fiber))),
                      p_e=self.p_e)
-        self._done = True
         return acq

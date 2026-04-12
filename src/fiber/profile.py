@@ -34,11 +34,19 @@ class FiberGenerator(PipelineStep):
             source["center_wavelength"], source["sweep_range"]
         )
 
-        self._done = False
+        self._cached_z = None
+        self._cached_dz = None
+        self._cached_profile = None
+        self._cached_atten = None
 
     def process(self, acq: Acquisition) -> Acquisition:
-        if self._done:
-            return acq   # don't regenerate on subsequent sweeps
+        if self._cached_profile is not None:
+            # re-attach cached fiber to a fresh Acquisition
+            acq.z = self._cached_z
+            acq.dz = self._cached_dz
+            acq.fiber_profile = self._cached_profile
+            acq.attenuation_envelope = self._cached_atten
+            return acq
 
         xp = self.bk.xp
 
@@ -70,8 +78,13 @@ class FiberGenerator(PipelineStep):
         acq.fiber_profile = profile
         acq.attenuation_envelope = attenuation
 
+        # cache so subsequent sweeps reuse the same fiber
+        self._cached_z = z
+        self._cached_dz = dz
+        self._cached_profile = profile
+        self._cached_atten = attenuation
+
         acq.add_log("fiber", n_z=n_z, dz_mm=dz * 1e3,
                      attenuation_dB_km=self.attenuation_dB_km,
                      n_cores=self.n_cores)
-        self._done = True
         return acq
