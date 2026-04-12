@@ -50,12 +50,14 @@ class StrainPerturbation(PipelineStep):
             raise ValueError(f"unknown strain.transfer: {kind!r}")
 
         self._cached_profile = None
+        self._cached_strain = None
 
     def process(self, acq: Acquisition) -> Acquisition:
         if not self.segments:
             return acq
         if self._cached_profile is not None:
             acq.fiber_profile = self._cached_profile
+            acq.strain_field = self._cached_strain
             return acq
         if acq.fiber_profile is None or acq.z is None:
             raise RuntimeError("StrainPerturbation: fiber_profile/z not set")
@@ -72,9 +74,12 @@ class StrainPerturbation(PipelineStep):
         # accurate to within ~half a bin past the segment edge
         phase = prefactor * xp.cumsum(eps_fiber) * dz
 
+        acq.strain_field = eps_fiber
+
         # uniform axial strain affects every core the same way
         acq.fiber_profile = acq.fiber_profile * xp.exp(1j * phase)
         self._cached_profile = acq.fiber_profile
+        self._cached_strain = eps_fiber
 
         acq.add_log("strain",
                      n_segments=len(self.segments),

@@ -25,6 +25,8 @@ class Acquisition:
     E_source: np.ndarray | None = None    # (n_t,), complex optical field
     nu_inst: np.ndarray | None = None     # (n_t,), instanteneous frequency [Hz]
 
+    strain_field: np.ndarray | None = None         # (n_z,), applied strain eps(z)
+
     photocurrent_main: np.ndarray | None = None   # (n_cores, n_t), W
     analog_main: np.ndarray | None = None         # (n_cores, n_t), V
     digital_main: np.ndarray | None = None        # (n_cores, n_t), int16
