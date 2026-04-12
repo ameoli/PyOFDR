@@ -40,3 +40,8 @@ MIT
 ## Issues & Contributions
 Report issues: https://github.com/ameoli/PyOFDR/issues
 Pull requests welcome!
+
+## References
+Froggatt & Moore, "High-spatial-resolution distributed strain measurement in optical fiber with Rayleigh scatter", Appl Opt 1998
+Soller et al, "High resolution OFDR for characterization of components and assemblies", Opt Express 2005
+Hartog, "Intro to Distributed Optical Fibre Sensors", CRC 2017
