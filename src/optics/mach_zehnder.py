@@ -5,7 +5,6 @@ Each spatial bin k corresponds to beat frequency f_k, so the IFFT directly gives
 For now no auxiliary interferometer (k-clock) -- that comes later. Also no circulator model, no phase noise on the beat.
 
 TODO: add auxiliary MZI for k-linearization
-add circulator insertion loss / isolation
 add differential phase noise at each delay
 """
 
@@ -16,6 +15,7 @@ from typing import Any
 
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
+from optics.components import Circulator
 
 
 class MachZehnder(PipelineStep):
@@ -25,6 +25,8 @@ class MachZehnder(PipelineStep):
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
         self.splitting_ratio = self.config["optics"]["splitting_ratio"]
+        circ_cfg = self.config["optics"].get("circulator", {})
+        self.circulator = Circulator(**circ_cfg)
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.fiber_profile is None:
@@ -50,10 +52,14 @@ class MachZehnder(PipelineStep):
         ], axis=-1)
         beat = self.bk.fft.ifft(h, axis=-1) * acq.n_samples
 
+        # circulator: signal passes through twice (to fiber and back)
+        IL2 = self.circulator.round_trip_transmission
+
         P_avg = float(xp.mean(xp.abs(acq.E_source) ** 2))
-        scale = 2.0 * math.sqrt(eta * (1.0 - eta)) * P_avg
+        scale = 2.0 * math.sqrt(eta * (1.0 - eta)) * P_avg * IL2
 
         acq.photocurrent_main = scale * xp.real(beat)
 
-        acq.add_log("optics", topology="mach_zehnder", scale=float(scale))
+        acq.add_log("optics", topology="mach_zehnder", scale=float(scale),
+                     circulator_IL_dB=self.circulator.insertion_loss_dB)
         return acq

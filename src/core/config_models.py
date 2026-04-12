@@ -86,8 +86,15 @@ class StrainConfig(_Strict):
         return self
 
 
+class CirculatorConfig(_Strict):
+    insertion_loss_dB: float = Field(0.7, ge=0)
+    isolation_dB:      float = Field(50.0, ge=0)
+    return_loss_dB:    float = Field(55.0, ge=0)
+
+
 class OpticsConfig(_Strict):
     splitting_ratio: float = Field(0.5, gt=0, lt=1)
+    circulator: CirculatorConfig = Field(default_factory=CirculatorConfig)
 
 
 class DetectionConfig(_Strict):

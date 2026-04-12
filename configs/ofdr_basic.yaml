@@ -17,6 +17,10 @@ source:
 
 optics:
   splitting_ratio: 0.5
+  circulator:
+    insertion_loss_dB: 0.7
+    isolation_dB: 50
+    return_loss_dB: 55
 
 detection:
   responsivity: 1.0             # A/W
