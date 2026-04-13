@@ -8,6 +8,7 @@ from typing import Any
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 from fiber.attenuation import round_trip_attenuation
+from fiber.reflectors import apply_connector_losses, inject_reflectors
 from utils.constants import C
 from utils.seeding import derive_seed
 from utils.units import dB_to_linear, wavelength_range_to_freq_range
@@ -27,6 +28,7 @@ class FiberGenerator(PipelineStep):
         self.n_cores = fiber["n_cores"]
         self.rayleigh_dB = fiber["rayleigh_coefficient_dB"]
         self.attenuation_dB_km = fiber["attenuation_dB_per_km"]
+        self.reflectors = fiber.get("reflectors", [])
         self.seed = self.config["simulation"]["seed"]
 
         # we need the sweep range to compute dz
@@ -70,8 +72,16 @@ class FiberGenerator(PipelineStep):
             parts.append((sigma / math.sqrt(2.0)) * (re + 1j * im))
         profile = xp.stack(parts)
 
+        # discrete reflectors (connectors, splices, etc)
+        if self.reflectors:
+            inject_reflectors(profile, z, dz, self.reflectors, xp=xp)
+
         # round-trip attenuation envelope
         attenuation = round_trip_attenuation(z, self.attenuation_dB_km, xp=xp)
+
+        # connector insertion losses (step-downs in the envelope)
+        if self.reflectors:
+            apply_connector_losses(attenuation, dz, self.reflectors, xp=xp)
 
         acq.z = z
         acq.dz = dz

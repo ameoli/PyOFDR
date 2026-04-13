@@ -40,12 +40,19 @@ class SimulationConfig(_Strict):
     backend: Literal["numpy", "cupy", "jax"] = "numpy"
 
 
+class ReflectorEntry(_Strict):
+    z: Length
+    R: float = Field(..., ge=0, le=1)
+    loss_dB: float = Field(0.0, ge=0)   # one-way insertion loss [dB]
+
+
 class FiberConfig(_Strict):
     length: Length = Field(10.0, gt=0)
     n_core: float = Field(1.4682, gt=1.0)
     n_cores: int = Field(1, ge=1)
     rayleigh_coefficient_dB: float = -82.0
     attenuation_dB_per_km: float = Field(0.0, ge=0)
+    reflectors: list[ReflectorEntry] = Field(default_factory=list)
 
 
 class SourceConfig(_Strict):
