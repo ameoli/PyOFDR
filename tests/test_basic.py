@@ -497,7 +497,7 @@ class TestBalancedDetector:
 
     def test_balanced_full_pipeline(self):
         cfg = {**CFG, "detection": {**CFG["detection"], "balanced": True}}
-        acq = run_campaign(cfg)
+        acq = run_campaign(cfg)[-1]
         assert acq.digital_main is not None
 
 
@@ -558,22 +558,22 @@ class TestADCJitter:
         return cfg
 
     def test_zero_jitter_matches_baseline(self):
-        a = run_campaign(self._cfg())
-        b = run_campaign(self._cfg(jitter_rms=0.0))
+        a = run_campaign(self._cfg())[-1]
+        b = run_campaign(self._cfg(jitter_rms=0.0))[-1]
         np.testing.assert_array_equal(a.digital_main, b.digital_main)
 
     def test_jitter_increases_noise(self):
         # need strong signal so dV/dt * sigma_j >> quantization step
         cfg_base = {**self._cfg(), "source": {**CFG["source"], "power": 1.0}}
         cfg_jit  = {**cfg_base,  "adc": {**cfg_base["adc"], "jitter_rms": 1e-9}}
-        clean = run_campaign(cfg_base)
-        noisy = run_campaign(cfg_jit)
+        clean = run_campaign(cfg_base)[-1]
+        noisy = run_campaign(cfg_jit)[-1]
         assert np.var(noisy.digital_main.astype(np.float64)) > \
                np.var(clean.digital_main.astype(np.float64))
 
     def test_more_jitter_means_more_noise(self):
-        v_lo = np.var(run_campaign(self._cfg(jitter_rms=10e-12 )).digital_main.astype(np.float64))
-        v_hi = np.var(run_campaign(self._cfg(jitter_rms=500e-12)).digital_main.astype(np.float64))
+        v_lo = np.var(run_campaign(self._cfg(jitter_rms=10e-12 ))[-1].digital_main.astype(np.float64))
+        v_hi = np.var(run_campaign(self._cfg(jitter_rms=500e-12))[-1].digital_main.astype(np.float64))
         assert v_hi > v_lo
 
     def test_jitter_with_dc_input_is_silent(self):
@@ -610,25 +610,25 @@ class TestADCEnob:
         return cfg
 
     def test_enob_unset_matches_legacy(self):
-        a = run_campaign(self._cfg())
-        b = run_campaign(self._cfg(enob=None))
+        a = run_campaign(self._cfg())[-1]
+        b = run_campaign(self._cfg(enob=None))[-1]
         np.testing.assert_array_equal(a.digital_main, b.digital_main)
 
     def test_enob_equal_to_bits_is_noop(self):
-        a = run_campaign(self._cfg())
-        b = run_campaign(self._cfg(enob=16))
+        a = run_campaign(self._cfg())[-1]
+        b = run_campaign(self._cfg(enob=16))[-1]
         np.testing.assert_array_equal(a.digital_main, b.digital_main)
 
     def test_enob_below_bits_increases_noise(self):
         # quiet baseline (no detector noise) -> any extra variance is from ENOB
-        clean = run_campaign(self._cfg())
-        noisy = run_campaign(self._cfg(enob=10))
+        clean = run_campaign(self._cfg())[-1]
+        noisy = run_campaign(self._cfg(enob=10))[-1]
         assert np.var(noisy.digital_main.astype(np.float64)) > \
                np.var(clean.digital_main.astype(np.float64))
 
     def test_enob_lower_means_more_noise(self):
-        v8  = np.var(run_campaign(self._cfg(enob=8 )).digital_main.astype(np.float64))
-        v12 = np.var(run_campaign(self._cfg(enob=12)).digital_main.astype(np.float64))
+        v8  = np.var(run_campaign(self._cfg(enob=8 ))[-1].digital_main.astype(np.float64))
+        v12 = np.var(run_campaign(self._cfg(enob=12))[-1].digital_main.astype(np.float64))
         assert v8 > v12
 
     def test_enob_above_bits_is_rejected(self):
@@ -753,13 +753,13 @@ class TestMulticore:
                 )
 
     def test_pipeline_through_multicore(self):
-        acq = run_campaign(self._mc_cfg(4))
+        acq = run_campaign(self._mc_cfg(4))[-1]
         assert acq.digital_main.shape == (4, acq.n_samples)
         assert acq.photocurrent_main.shape == (4, acq.n_samples)
 
     def test_multicore_reproducibility(self):
-        a = run_campaign(self._mc_cfg(4))
-        b = run_campaign(self._mc_cfg(4))
+        a = run_campaign(self._mc_cfg(4))[-1]
+        b = run_campaign(self._mc_cfg(4))[-1]
         np.testing.assert_array_equal(a.digital_main, b.digital_main)
 
     def test_laser_field_is_shared_across_cores(self):
@@ -775,7 +775,7 @@ class TestMulticore:
         # different cores should see different noise samples.
         cfg = {**self._mc_cfg(2), "detection": {**CFG["detection"],
                "shot_noise": False, "thermal_nep": 1e-9, "dark_current": 0}}
-        acq = run_campaign(cfg)
+        acq = run_campaign(cfg)[-1]
         # subtract the (shared) deterministic beat to isolate noise
         # easier: just check the two analog traces are not equal
         assert not np.array_equal(acq.analog_main[0], acq.analog_main[1])
@@ -954,7 +954,7 @@ class TestStrainPerturbation:
 
     def test_pipeline_runs_with_strain(self):
         cfg = self._strain_cfg([{"start": 0.3, "end": 0.6, "epsilon": 1e-5}])
-        acq = run_campaign(cfg)
+        acq = run_campaign(cfg)[-1]
         assert acq.digital_main is not None
 
     def test_strain_does_not_double_apply_on_second_call(self):
@@ -1038,7 +1038,7 @@ class TestStrainPerturbation:
 class TestHDF5Writer:
 
     def test_write_and_read_back(self, tmp_path):
-        acq = run_campaign(CFG)
+        acq = run_campaign(CFG)[-1]
         from core.config import compute_derived
         derived = compute_derived(CFG)
         path = tmp_path / "test_output.h5"
@@ -1062,14 +1062,14 @@ class TestHDF5Writer:
 
     def test_no_output_path_skips_writing(self, tmp_path):
         """run_campaign with no output path should not create files."""
-        acq = run_campaign(CFG)
+        run_campaign(CFG)
         # no h5 files should exist
         assert list(tmp_path.glob("*.h5")) == []
 
     def test_strain_field_is_saved(self, tmp_path):
         cfg = {**CFG, "strain": {"segments": [{"start": 0.2, "end": 0.5,
                                                 "epsilon": 1e-5}]}}
-        acq = run_campaign(cfg)
+        acq = run_campaign(cfg)[-1]
         from core.config import compute_derived
         derived = compute_derived(cfg)
         path = tmp_path / "strain_out.h5"
@@ -1099,13 +1099,13 @@ class TestHDF5Writer:
 class TestEndToEnd:
 
     def test_run_campaign(self):
-        acq = run_campaign(CFG)
+        acq = run_campaign(CFG)[-1]
         assert acq.digital_main is not None
         assert acq.z is not None
 
     def test_reflectogram_has_energy_in_fiber_region(self):
         """The FFT should show most energy in the first N_z bins."""
-        acq = run_campaign(CFG)
+        acq = run_campaign(CFG)[-1]
         # take core 0
         spectrum = np.fft.fft(acq.digital_main[0].astype(np.float64))
         n_half = len(spectrum) // 2

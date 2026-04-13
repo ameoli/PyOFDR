@@ -6,8 +6,12 @@ from core.config import compute_derived
 logger = logging.getLogger(__name__)
 
 
-def run_campaign(cfg: dict) -> Acquisition:
-    """Run a single-sweep simulation and return the Acquisition.
+def run_campaign(cfg: dict) -> list[Acquisition]:
+    """Run one or more sweeps and return the list of Acquisitions.
+
+    The fiber profile is generated once and reused across sweeps.
+    Noise sources (laser phase noise, RIN, detector noise, ADC jitter)
+    are independent for each sweep.
 
     Paramters
     ---------
@@ -16,11 +20,9 @@ def run_campaign(cfg: dict) -> Acquisition:
 
     Returns
     -------
-    Acquisition
-        The completed acquisition with digital signal.
+    list[Acquisition]
+        One Acquisition per sweep.
     """
-    # import here to avoid circular imports
-    # (there's probably a better way to do this)
     from fiber.profile import FiberGenerator
     from fiber.strain import StrainPerturbation
     from source.swept_laser import SweptLaser
@@ -31,12 +33,15 @@ def run_campaign(cfg: dict) -> Acquisition:
     from output.hdf5_writer import HDF5Writer
 
     derived = compute_derived(cfg)
-    logger.info("PyOFDR v0.1 -- starting simulation")
+    n_sweeps = cfg.get("simulation", {}).get("n_sweeps", 1)
+
+    logger.info("PyOFDR v0.1 -- starting simulation (%d sweep%s)",
+                n_sweeps, "s" if n_sweeps > 1 else "")
     logger.info("  dz = %.4f mm, N_z = %d, N_t = %d",
                 derived["dz"] * 1e3, derived["n_z"], derived["n_t"])
 
-    # Build pipeline
-    # TODO: make this configurable / use a registry pattern
+    # build pipeline steps once -- stateful steps (FiberGenerator) cache
+    # across sweeps automatically
     steps = [
         FiberGenerator(cfg),
         StrainPerturbation(cfg),
@@ -47,18 +52,35 @@ def run_campaign(cfg: dict) -> Acquisition:
         ADC(cfg),
     ]
 
-    acq = Acquisition()
-    for step in steps:
-        acq = step.process(acq)
-
-    # write to HDF5 if output path is configured
     output_path = cfg.get("output", {}).get("path")
-    if output_path:
-        with HDF5Writer(output_path) as writer:
-            writer.write_config(cfg, derived)
-            writer.write_fiber(acq)
-            writer.write_sweep(acq, sweep_index=0)
-        logger.info("Output written to %s", output_path)
+    writer = None
+    acquisitions = []
 
-    logger.info("Simulation complete, %d samples generated", acq.n_samples)
-    return acq
+    try:
+        if output_path:
+            writer = HDF5Writer(output_path)
+            writer.__enter__()
+
+        for i in range(n_sweeps):
+            acq = Acquisition(sweep_index=i)
+            for step in steps:
+                acq = step.process(acq)
+
+            if writer is not None:
+                if i == 0:
+                    writer.write_config(cfg, derived)
+                    writer.write_fiber(acq)
+                writer.write_sweep(acq, sweep_index=i)
+
+            acquisitions.append(acq)
+            logger.info("  sweep %d/%d done", i + 1, n_sweeps)
+
+    finally:
+        if writer is not None:
+            writer.__exit__(None, None, None)
+
+    if output_path:
+        logger.info("Output written to %s", output_path)
+    logger.info("Simulation complete, %d sweep%s, %d samples each",
+                n_sweeps, "s" if n_sweeps > 1 else "", acquisitions[0].n_samples)
+    return acquisitions
