@@ -26,6 +26,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "pint>=0.22",
+    "h5py>=3.8",
 ]
 
 [project.urls]
