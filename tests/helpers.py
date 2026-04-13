@@ -1,0 +1,20 @@
+"""Shared config and constants for the test suite."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+REPO_ROOT = Path(__file__).parent.parent
+
+# short fiber for fast tests
+CFG = {
+    "simulation": {"seed": 42},
+    "fiber": {"length": 1.0, "n_core": 1.4682, "rayleigh_coefficient_dB": -82.0},
+    "source": {"center_wavelength": 1550e-9, "sweep_range": 40e-9,
+               "sweep_duration": 0.01, "power": 10e-3},
+    "optics": {"splitting_ratio": 0.5},
+    "detection": {"responsivity": 1.0},
+    "adc": {"bits": 16, "sample_rate": 200e6, "voltage_range": 2.0,
+            "input_impedance": 50.0},
+}

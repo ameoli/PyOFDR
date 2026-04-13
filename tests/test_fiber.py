@@ -1,0 +1,178 @@
+"""Tests for fiber profile generation, reflectors, and attenuation."""
+
+import numpy as np
+import pytest
+
+from helpers import CFG
+from core.acquisition import Acquisition
+from fiber.attenuation import round_trip_attenuation, dB_per_km_to_neper_per_m
+from fiber.profile import FiberGenerator
+from fiber.reflectors import apply_connector_losses, inject_reflectors
+
+
+class TestFiberGenerator:
+
+    def test_profile_is_created(self):
+        acq = FiberGenerator(CFG).process(Acquisition())
+        assert acq.fiber_profile is not None
+
+    def test_profile_is_complex(self):
+        acq = FiberGenerator(CFG).process(Acquisition())
+        assert acq.fiber_profile.dtype == np.complex128
+
+    def test_z_starts_at_zero(self):
+        acq = FiberGenerator(CFG).process(Acquisition())
+        assert acq.z[0] == 0.0
+
+    def test_spatial_resolution_positive(self):
+        acq = FiberGenerator(CFG).process(Acquisition())
+        assert acq.dz > 0
+
+    def test_same_seed_same_profile(self):
+        """Same seed should give identical results."""
+        a = FiberGenerator(CFG).process(Acquisition())
+        b = FiberGenerator(CFG).process(Acquisition())
+        np.testing.assert_array_equal(a.fiber_profile, b.fiber_profile)
+
+    def test_profile_has_correct_length(self):
+        acq = FiberGenerator(CFG).process(Acquisition())
+        assert acq.fiber_profile.shape[-1] == len(acq.z)
+
+    def test_profile_is_2d_with_core_axis(self):
+        # leading axis is the core index, n_cores = 1 for now (#14)
+        acq = FiberGenerator(CFG).process(Acquisition())
+        assert acq.fiber_profile.ndim == 2
+        assert acq.fiber_profile.shape[0] == 1
+
+    def test_attenuation_envelope_exists(self):
+        acq = FiberGenerator(CFG).process(Acquisition())
+        assert acq.attenuation_envelope is not None
+        assert len(acq.attenuation_envelope) == len(acq.z)
+
+    def test_attenuation_starts_at_one(self):
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "attenuation_dB_per_km": 0.18}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        np.testing.assert_allclose(acq.attenuation_envelope[0], 1.0)
+
+    def test_attenuation_decays(self):
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "attenuation_dB_per_km": 0.18}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        # should decrease monotonically
+        assert np.all(np.diff(acq.attenuation_envelope) < 0)
+
+    def test_zero_attenuation_gives_flat_envelope(self):
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "attenuation_dB_per_km": 0.0}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        np.testing.assert_array_equal(acq.attenuation_envelope,
+                                       np.ones_like(acq.attenuation_envelope))
+
+    def test_second_call_populates_fresh_acq(self):
+        """Regression: _done cache used to early-return without setting
+        fields on the new Acquisition, breaking multi-sweep (#20)."""
+        gen = FiberGenerator(CFG)
+        acq1 = gen.process(Acquisition())
+        acq2 = gen.process(Acquisition())  # fresh acq, same step
+        assert acq2.fiber_profile is not None
+        assert acq2.z is not None
+        np.testing.assert_array_equal(acq1.fiber_profile, acq2.fiber_profile)
+
+
+class TestDiscreteReflectors:
+
+    def test_no_reflectors_unchanged(self):
+        """Empty reflector list should not change the profile."""
+        acq = FiberGenerator(CFG).process(Acquisition())
+        cfg2 = {**CFG, "fiber": {**CFG["fiber"], "reflectors": []}}
+        acq2 = FiberGenerator(cfg2).process(Acquisition())
+        np.testing.assert_array_equal(acq.fiber_profile, acq2.fiber_profile)
+
+    def test_reflector_adds_peak(self):
+        ref_z = 0.5   # midpoint of the 1m fiber
+        R = 0.04      # 4% Fresnel reflection
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "reflectors": [{"z": ref_z, "R": R}]}}
+        acq_ref = FiberGenerator(cfg).process(Acquisition())
+        acq_bare = FiberGenerator(CFG).process(Acquisition())
+
+        # power at the reflector bin should be much larger
+        idx = int(round(ref_z / acq_ref.dz))
+        power_ref = np.abs(acq_ref.fiber_profile[0, idx]) ** 2
+        power_bare = np.abs(acq_bare.fiber_profile[0, idx]) ** 2
+        assert power_ref > power_bare
+
+    def test_reflector_outside_fiber_ignored(self):
+        """Reflector beyond the fiber length should not crash."""
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "reflectors": [{"z": 999.0, "R": 0.01}]}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        assert acq.fiber_profile is not None
+
+    def test_reflector_amplitude(self):
+        """Check that injected amplitude matches sqrt(R)."""
+        R = 0.09
+        z_pos = 0.3
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "reflectors": [{"z": z_pos, "R": R}],
+               "rayleigh_coefficient_dB": -300}}  # negligible Rayleigh
+        acq = FiberGenerator(cfg).process(Acquisition())
+        idx = int(round(z_pos / acq.dz))
+        amp = np.abs(acq.fiber_profile[0, idx])
+        np.testing.assert_allclose(amp, np.sqrt(R), atol=1e-10)
+
+    def test_multiple_reflectors(self):
+        refs = [{"z": 0.2, "R": 0.01}, {"z": 0.6, "R": 0.05}]
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "reflectors": refs,
+               "rayleigh_coefficient_dB": -300}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        for ref in refs:
+            idx = int(round(ref["z"] / acq.dz))
+            amp = np.abs(acq.fiber_profile[0, idx])
+            np.testing.assert_allclose(amp, np.sqrt(ref["R"]), atol=1e-10)
+
+    def test_connector_loss_creates_step(self):
+        """A connector with insertion loss should reduce the attenuation
+        envelope beyond its position."""
+        loss = 0.5  # dB one-way
+        cfg_bare = {**CFG, "fiber": {**CFG["fiber"],
+                    "attenuation_dB_per_km": 0.0}}
+        cfg_loss = {**CFG, "fiber": {**CFG["fiber"],
+                    "attenuation_dB_per_km": 0.0,
+                    "reflectors": [{"z": 0.5, "R": 0.0, "loss_dB": loss}]}}
+        acq_bare = FiberGenerator(cfg_bare).process(Acquisition())
+        acq_loss = FiberGenerator(cfg_loss).process(Acquisition())
+
+        idx = int(round(0.5 / acq_loss.dz))
+        # before connector: same
+        np.testing.assert_allclose(
+            acq_loss.attenuation_envelope[:idx],
+            acq_bare.attenuation_envelope[:idx])
+        # after connector: step down
+        expected_factor = 10.0 ** (-loss / 10.0)
+        np.testing.assert_allclose(
+            acq_loss.attenuation_envelope[idx:],
+            acq_bare.attenuation_envelope[idx:] * expected_factor)
+
+    def test_two_connectors_cascade(self):
+        """Two lossy connectors should accumulate."""
+        loss = 0.3
+        refs = [{"z": 0.3, "R": 0.0, "loss_dB": loss},
+                {"z": 0.7, "R": 0.0, "loss_dB": loss}]
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "attenuation_dB_per_km": 0.0, "reflectors": refs}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        factor = 10.0 ** (-loss / 10.0)
+        # after 2nd connector: two steps
+        idx2 = int(round(0.7 / acq.dz))
+        np.testing.assert_allclose(
+            acq.attenuation_envelope[idx2], factor ** 2, rtol=1e-10)
+
+    def test_zero_loss_is_noop(self):
+        """loss_dB=0 should not change anything."""
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "reflectors": [{"z": 0.5, "R": 0.04, "loss_dB": 0.0}]}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        cfg_bare = {**CFG, "fiber": {**CFG["fiber"],
+                    "reflectors": [{"z": 0.5, "R": 0.04}]}}
+        acq_bare = FiberGenerator(cfg_bare).process(Acquisition())
+        np.testing.assert_array_equal(
+            acq.attenuation_envelope, acq_bare.attenuation_envelope)
