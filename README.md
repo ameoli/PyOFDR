@@ -1,4 +1,9 @@
 # PyOFDR
+
+![tests](https://github.com/ameoli/PyOFDR/actions/workflows/tests.yml/badge.svg)
+![license](https://img.shields.io/github/license/ameoli/PyOFDR)
+![python](https://img.shields.io/badge/python-3.10%2B-blue)
+
 **Python simulator for Optical Frequency Domain Reflectometry**
 End-to-end OFDR simulation, from the laser sweep to digitized samples.
 Think of it as a virtual optical bench.
