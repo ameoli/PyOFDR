@@ -19,16 +19,21 @@ Outputs digitized beat signal identical to what you'd get from a real instrument
 
 ## Install
 ```bash
-pip install -e .
+pip install -r requirements.txt   # or just: pip install numpy scipy pyyaml pydantic pint h5py
 ```
 
 ## Quick start
 ```python
-from pyofdr import load_config, run_campaign
+import sys
+sys.path.insert(0, "src")
 
-config = load_config("configs/ofdr_basic.yaml")
-acq = run_campaign(config)
-# acq.digital contains the digitized beat signal
+from core.config import load_config
+from core.campaign import run_campaign
+
+cfg = load_config("configs/ofdr_basic.yaml")
+acqs = run_campaign(cfg)        # one Acquisition per sweep
+acq  = acqs[-1]
+# acq.digital_main contains the digitized beat signal (int16, shape (n_cores, n))
 ```
 
 ## Run tests
