@@ -49,6 +49,7 @@ class Detector(PipelineStep):
         self.thermal_nep = det["thermal_nep"]                  # W/sqrt(Hz)
         self.dark_current = det["dark_current"]                # A
         self.balanced = det["balanced"]
+        self.saturation_current = det["saturation_current"]   # None or A
         self.seed = self.config["simulation"]["seed"]
 
         # balanced mode needs the DC current per arm for shot noise.
@@ -80,6 +81,15 @@ class Detector(PipelineStep):
 
         # convert optical power to current
         I = acq.photocurrent_main * self.responsivity
+
+        # photodiode saturation: real PDs have a max linear photocurrent
+        # above which the response flattens. We model this as a hard clip
+        # applied BEFORE the noise sources (noise is added by the TIA /
+        # on the clipped current). symmetric because balanced mode can
+        # swing negative.
+        if self.saturation_current is not None:
+            I_sat = self.saturation_current
+            I = xp.clip(I, -I_sat, I_sat)
 
         if self.balanced:
             # Balanced detection: two photodiodes see complementary MZI arms.
@@ -144,5 +154,6 @@ class Detector(PipelineStep):
                      shot_noise=self.shot_noise_enabled,
                      thermal_nep=self.thermal_nep,
                      dark_current=self.dark_current,
-                     balanced=self.balanced)
+                     balanced=self.balanced,
+                     saturation_current=self.saturation_current)
         return acq

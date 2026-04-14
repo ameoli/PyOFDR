@@ -116,6 +116,7 @@ class DetectionConfig(_Strict):
     thermal_nep:  float     = Field(1.0e-11, ge=0)   # W/sqrt(Hz), bare float
     dark_current: Current   = Field(1.0e-9, ge=0)
     balanced:     bool      = False
+    saturation_current: Current | None = None   # photodiode clamp [A]
 
 
 class ADCConfig(_Strict):

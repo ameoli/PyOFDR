@@ -148,3 +148,41 @@ class TestAntiAliasFilter:
 
         # narrower filter -> less high freq content -> smaller variance
         assert np.var(acq_narrow.analog_main) < np.var(acq_wide.analog_main)
+
+
+class TestSaturation:
+
+    def _run(self, sat=None, power=10e-3, **det_kw):
+        cfg = {**CFG,
+               "source":    {**CFG["source"], "power": power},
+               "detection": {**CFG["detection"],
+                              "shot_noise": False, "thermal_nep": 0,
+                              "dark_current": 0,
+                              "saturation_current": sat, **det_kw}}
+        acq = Acquisition()
+        for cls in [FiberGenerator, SweptLaser, MachZehnder, Detector]:
+            acq = cls(cfg).process(acq)
+        return acq
+
+    def test_no_sat_matches_baseline(self):
+        a = self._run(None)
+        b = self._run(None)
+        np.testing.assert_array_equal(a.analog_main, b.analog_main)
+
+    def test_high_sat_is_noop(self):
+        # clamp well above anything we'd ever see
+        a = self._run(None)
+        b = self._run(1.0)    # 1 A, nothing close
+        np.testing.assert_array_equal(a.analog_main, b.analog_main)
+
+    def test_low_sat_clips_voltage(self):
+        # strong signal + tight clamp -> output should be bounded
+        acq = self._run(sat=1e-6, power=1.0)
+        Z = CFG["adc"]["input_impedance"]
+        # V = I * Z, |I| <= I_sat
+        assert np.max(np.abs(acq.analog_main)) <= 1e-6 * Z + 1e-12
+
+    def test_sat_changes_signal(self):
+        clean  = self._run(None,   power=1.0)
+        capped = self._run(1e-6,   power=1.0)
+        assert not np.array_equal(clean.analog_main, capped.analog_main)
