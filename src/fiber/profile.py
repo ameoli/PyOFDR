@@ -7,7 +7,7 @@ from typing import Any
 
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
-from fiber.attenuation import round_trip_attenuation
+from fiber.attenuation import round_trip_attenuation, round_trip_attenuation_varying
 from fiber.reflectors import apply_connector_losses, inject_reflectors
 from utils.constants import C
 from utils.seeding import derive_seed
@@ -29,6 +29,7 @@ class FiberGenerator(PipelineStep):
         self.rayleigh_dB = fiber["rayleigh_coefficient_dB"]
         self.rayleigh_segments = fiber.get("rayleigh_segments", [])
         self.attenuation_dB_km = fiber["attenuation_dB_per_km"]
+        self.attenuation_segments = fiber.get("attenuation_segments", [])
         self.reflectors = fiber.get("reflectors", [])
         self.seed = self.config["simulation"]["seed"]
 
@@ -88,8 +89,18 @@ class FiberGenerator(PipelineStep):
         if self.reflectors:
             inject_reflectors(profile, z, dz, self.reflectors, xp=xp)
 
-        # round-trip attenuation envelope
-        attenuation = round_trip_attenuation(z, self.attenuation_dB_km, xp=xp)
+        # round-trip attenuation envelope. With per-segment overrides
+        # we build an alpha(z) vector and integrate cumulatively.
+        if self.attenuation_segments:
+            alpha_z = xp.full(n_z, float(self.attenuation_dB_km))
+            for seg in self.attenuation_segments:
+                mask = (z >= seg["start"]) & (z < seg["end"])
+                alpha_z = xp.where(mask,
+                                   seg["attenuation_dB_per_km"],
+                                   alpha_z)
+            attenuation = round_trip_attenuation_varying(z, alpha_z, dz, xp=xp)
+        else:
+            attenuation = round_trip_attenuation(z, self.attenuation_dB_km, xp=xp)
 
         # connector insertion losses (step-downs in the envelope)
         if self.reflectors:

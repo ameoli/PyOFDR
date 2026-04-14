@@ -28,3 +28,14 @@ def round_trip_attenuation(z, alpha_dB_km, xp=np):
     """
     alpha = dB_per_km_to_neper_per_m(alpha_dB_km)
     return xp.exp(-alpha * z)
+
+
+def round_trip_attenuation_varying(z, alpha_dB_km_z, dz, xp=np):
+    """Envelope for a z-dependent loss, exp(-integral(alpha(z') dz')).
+
+    alpha_dB_km_z is an array of the same length as z, one loss value
+    per spatial bin. Uses a rectangle-rule cumulative integral -- good
+    enough given the typical bin size of a few mm.
+    """
+    alpha_np = dB_per_km_to_neper_per_m(alpha_dB_km_z)
+    return xp.exp(-xp.cumsum(alpha_np) * dz)

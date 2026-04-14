@@ -213,3 +213,50 @@ class TestVaryingRayleigh:
         out_before = P[(z > 0.1) & (z < 0.35)].mean()
         out_after  = P[(z > 0.65) & (z < 0.9)].mean()
         np.testing.assert_allclose(out_before, out_after, rtol=0.5)
+
+
+class TestVaryingAttenuation:
+
+    def _run(self, segments=None, base=0.0):
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "attenuation_dB_per_km": base,
+               "attenuation_segments":  segments or []}}
+        return FiberGenerator(cfg).process(Acquisition())
+
+    def test_no_segments_matches_baseline(self):
+        a = self._run(None, base=0.18)
+        b = FiberGenerator({**CFG, "fiber": {**CFG["fiber"],
+             "attenuation_dB_per_km": 0.18}}).process(Acquisition())
+        np.testing.assert_array_equal(
+            a.attenuation_envelope, b.attenuation_envelope)
+
+    def test_lossy_segment_drops_envelope(self):
+        # one lossy chunk in the middle
+        segs = [{"start": 0.4, "end": 0.6,
+                  "attenuation_dB_per_km": 20000.0}]
+        acq = self._run(segs, base=0.0)
+        env = acq.attenuation_envelope
+        z = acq.z
+        before = env[(z >= 0.3) & (z < 0.4)].mean()
+        after  = env[(z >= 0.6) & (z < 0.7)].mean()
+        # big drop across the lossy section
+        assert after < 0.5 * before
+
+    def test_envelope_monotonic(self):
+        # attenuation can only reduce amplitude, never increase it
+        segs = [{"start": 0.2, "end": 0.4, "attenuation_dB_per_km": 5.0},
+                {"start": 0.6, "end": 0.8, "attenuation_dB_per_km": 2.0}]
+        acq = self._run(segs, base=0.18)
+        env = acq.attenuation_envelope
+        assert np.all(np.diff(env) <= 1e-12)
+
+    def test_zero_loss_segment_matches_baseline(self):
+        # segment with same value as base -> no difference
+        segs = [{"start": 0.3, "end": 0.7, "attenuation_dB_per_km": 0.5}]
+        a = self._run(segs, base=0.5)
+        b = FiberGenerator({**CFG, "fiber": {**CFG["fiber"],
+             "attenuation_dB_per_km": 0.5}}).process(Acquisition())
+        # numerical: varying path uses cumsum*dz, constant uses alpha*z,
+        # off by one bin -- allow 1e-6 tolerance
+        np.testing.assert_allclose(a.attenuation_envelope,
+                                    b.attenuation_envelope, rtol=1e-4)
