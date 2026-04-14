@@ -25,7 +25,8 @@ def main():
     cfg = load_config(cfg_path)
     print_info(cfg)
     print("Running simulation...")
-    acq = run_campaign(cfg)
+    # run_campaign returns a list (one per sweep) -- take the last one
+    acq = run_campaign(cfg)[-1]
     print(f"Done. {acq.n_samples} samples, dz = {acq.dz*1e3:.3f} mm")
 
     # -- reflectogram (core 0) --
