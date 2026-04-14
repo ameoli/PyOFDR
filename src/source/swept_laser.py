@@ -38,6 +38,7 @@ class SweptLaser(PipelineStep):
         self.power = source["power"]
         self.linewidth = source["linewidth"]
         self.rin_dB_per_Hz = source["rin_dB_per_Hz"]   # None or float
+        self.envelope_edge_dB = source["power_envelope_edge_dB"]
         self.sample_rate = self.config["adc"]["sample_rate"]
         self.seed = self.config["simulation"]["seed"]
 
@@ -69,6 +70,16 @@ class SweptLaser(PipelineStep):
             sigma = math.sqrt(2.0 * math.pi * self.linewidth * dt)
             phi = phi + xp.cumsum(sigma * rng.standard_normal(n_samples))
 
+        # power envelope: real tunable lasers droop at the edges of the
+        # sweep. Parabolic model -- P(center)=P0, P(edges)=P0*10^(-edge/10).
+        # edge=0 keeps the old flat behaviour.
+        if self.envelope_edge_dB > 0:
+            edge_lin = 1.0 - 10.0 ** (-self.envelope_edge_dB / 10.0)
+            u = t / self.sweep_duration - 0.5        # -0.5 .. +0.5
+            P_t = self.power * (1.0 - 4.0 * edge_lin * u * u)
+        else:
+            P_t = self.power  # scalar, broadcasts fine
+
         # RIN -- relative intensity noise.  Modelled as white multiplicative
         # noise on optical power: P(t) = P0*(1 + n(t)),  n ~ N(0, sigma_rin),
         # sigma_rin = sqrt(RIN_linear * BW).
@@ -81,11 +92,12 @@ class SweptLaser(PipelineStep):
                 derive_seed(self.seed, component="laser",
                             sweep=acq.sweep_index, sub=1))
             n_rin = sigma_rin  * rng_rin.standard_normal(n_samples)
-            P_noisy = self.power * (1.0 + n_rin)
+            P_noisy = P_t * (1.0 + n_rin)
             P_noisy = xp.maximum(P_noisy, 0.0)   # shouldn't happen for realistic RIN values
             E = xp.sqrt(P_noisy) * xp.exp(1j * phi)
         else:
-            E = math.sqrt(self.power) * xp.exp(1j * phi)
+            E = xp.sqrt(P_t) * xp.exp(1j * phi) if self.envelope_edge_dB > 0 \
+                else math.sqrt(self.power) * xp.exp(1j * phi)
 
         acq.t = t
         acq.dt = dt
@@ -95,5 +107,6 @@ class SweptLaser(PipelineStep):
 
         acq.add_log("source", n_samples=n_samples, gamma=self.gamma,
                      linewidth=self.linewidth,
-                     rin_dB_per_Hz=self.rin_dB_per_Hz)
+                     rin_dB_per_Hz=self.rin_dB_per_Hz,
+                     envelope_edge_dB=self.envelope_edge_dB)
         return acq

@@ -129,3 +129,37 @@ class TestRIN:
         phi_a = np.unwrap(np.angle(a.E_source))
         phi_b = np.unwrap(np.angle(b.E_source))
         np.testing.assert_allclose(phi_a, phi_b,  atol=1e-10)
+
+
+class TestPowerEnvelope:
+
+    def _run(self, edge_dB):
+        cfg = {**CFG, "source": {**CFG["source"],
+                                  "power_envelope_edge_dB": edge_dB}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        return SweptLaser(cfg).process(acq)
+
+    def test_zero_edge_matches_flat(self):
+        a = self._run(0.0)
+        b = SweptLaser(CFG).process(FiberGenerator(CFG).process(Acquisition()))
+        np.testing.assert_array_equal(a.E_source, b.E_source)
+
+    def test_edge_power_drops_by_expected_dB(self):
+        edge_dB = 3.0
+        acq = self._run(edge_dB)
+        P = np.abs(acq.E_source)**2
+        P_center = P[len(P)//2]
+        P_edge   = P[0]
+        ratio_dB = 10.0 * np.log10(P_edge / P_center)
+        np.testing.assert_allclose(ratio_dB, -edge_dB, atol=0.05)
+
+    def test_envelope_is_symmetric(self):
+        acq = self._run(2.0)
+        P = np.abs(acq.E_source)**2
+        # not exactly symmetric (t goes 0..T-dt) but close
+        np.testing.assert_allclose(P[0], P[-1], rtol=1e-3)
+
+    def test_max_power_still_at_center(self):
+        acq = self._run(1.5)
+        P = np.abs(acq.E_source)**2
+        assert abs(np.argmax(P) - len(P)//2) < 5

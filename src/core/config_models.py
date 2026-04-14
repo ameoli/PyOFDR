@@ -63,6 +63,9 @@ class SourceConfig(_Strict):
     power:             Power     = Field(10e-3,   gt=0)
     linewidth:         Frequency = Field(0.0, ge=0)   # FWHM Lorentzian
     rin_dB_per_Hz:     float | None = None   # RIN power spectral density [dB/Hz]
+    # power envelope across the sweep: P(nu) drops by this many dB at the
+    # sweep edges, parabolic shape (0.0 = flat / backward compat)
+    power_envelope_edge_dB: float = Field(0.0, ge=0)
 
 
 class StrainSegment(_Strict):
