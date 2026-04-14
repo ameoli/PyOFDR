@@ -27,6 +27,7 @@ class FiberGenerator(PipelineStep):
         self.n_core = fiber["n_core"]
         self.n_cores = fiber["n_cores"]
         self.rayleigh_dB = fiber["rayleigh_coefficient_dB"]
+        self.rayleigh_segments = fiber.get("rayleigh_segments", [])
         self.attenuation_dB_km = fiber["attenuation_dB_per_km"]
         self.reflectors = fiber.get("reflectors", [])
         self.seed = self.config["simulation"]["seed"]
@@ -57,9 +58,20 @@ class FiberGenerator(PipelineStep):
         n_z = int(math.ceil(self.length / dz))
         z = xp.arange(n_z) * dz
 
-        # Rayleigh backscatter coefficient (power per meter)
-        R_per_m = dB_to_linear(self.rayleigh_dB)
-        sigma = math.sqrt(R_per_m * dz)
+        # Rayleigh backscatter coefficient (power per meter). When
+        # segments are given we build a per-z R(z) array; the overall
+        # sigma then also varies along the fiber. Backward compat:
+        # no segments -> scalar, identical to the old path.
+        if self.rayleigh_segments:
+            R_z = xp.full(n_z, dB_to_linear(self.rayleigh_dB))
+            for seg in self.rayleigh_segments:
+                mask = (z >= seg["start"]) & (z < seg["end"])
+                R_z = xp.where(mask,
+                               dB_to_linear(seg["rayleigh_coefficient_dB"]),
+                               R_z)
+            sigma = xp.sqrt(R_z * dz)
+        else:
+            sigma = math.sqrt(dB_to_linear(self.rayleigh_dB) * dz)
 
         # one independent profile per core (circular gaussian phasors)
         parts = []

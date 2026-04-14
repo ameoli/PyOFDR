@@ -47,11 +47,24 @@ class ReflectorEntry(_Strict):
     loss_dB: float = Field(0.0, ge=0)   # one-way insertion loss [dB]
 
 
+class RayleighSegment(_Strict):
+    start: Length
+    end:   Length
+    rayleigh_coefficient_dB: float
+
+    @model_validator(mode="after")
+    def _check_order(self):
+        if self.end <= self.start:
+            raise ValueError(f"rayleigh segment: end ({self.end}) must be > start ({self.start})")
+        return self
+
+
 class FiberConfig(_Strict):
     length: Length = Field(10.0, gt=0)
     n_core: float = Field(1.4682, gt=1.0)
     n_cores: int = Field(1, ge=1)
     rayleigh_coefficient_dB: float = -82.0
+    rayleigh_segments: list[RayleighSegment] = Field(default_factory=list)
     attenuation_dB_per_km: float = Field(0.0, ge=0)
     reflectors: list[ReflectorEntry] = Field(default_factory=list)
 

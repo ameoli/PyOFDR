@@ -176,3 +176,40 @@ class TestDiscreteReflectors:
         acq_bare = FiberGenerator(cfg_bare).process(Acquisition())
         np.testing.assert_array_equal(
             acq.attenuation_envelope, acq_bare.attenuation_envelope)
+
+
+class TestVaryingRayleigh:
+
+    def _run(self, segments=None):
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "rayleigh_segments": segments or []}}
+        return FiberGenerator(cfg).process(Acquisition())
+
+    def test_no_segments_matches_baseline(self):
+        a = self._run(None)
+        b = FiberGenerator(CFG).process(Acquisition())
+        np.testing.assert_array_equal(a.fiber_profile, b.fiber_profile)
+
+    def test_high_R_segment_has_larger_amplitude(self):
+        # pump one segment to -60 dB vs default -82 dB
+        segs = [{"start": 0.3, "end": 0.7,
+                  "rayleigh_coefficient_dB": -60.0}]
+        acq = self._run(segs)
+        z = acq.z
+        P = np.abs(acq.fiber_profile[0])**2
+        inside  = (z >= 0.3) & (z < 0.7)
+        outside = ~inside
+        # mean power should be much larger in the hot segment
+        assert np.mean(P[inside]) > 10.0 * np.mean(P[outside])
+
+    def test_segment_respects_bounds(self):
+        segs = [{"start": 0.4, "end": 0.6,
+                  "rayleigh_coefficient_dB": -50.0}]
+        acq = self._run(segs)
+        P = np.abs(acq.fiber_profile[0])**2
+        z = acq.z
+        # samples just outside segment should still be at baseline level.
+        # average a chunk to beat speckle.
+        out_before = P[(z > 0.1) & (z < 0.35)].mean()
+        out_after  = P[(z > 0.65) & (z < 0.9)].mean()
+        np.testing.assert_allclose(out_before, out_after, rtol=0.5)
