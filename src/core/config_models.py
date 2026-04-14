@@ -126,6 +126,8 @@ class ADCConfig(_Strict):
     voltage_range:   Voltage      = Field(2.0,   gt=0)
     input_impedance: Resistance   = Field(50.0,  gt=0)
     jitter_rms:      Time         = Field(0.0, ge=0)   # aperture jitter [s]
+    dnl_rms_lsb:     float        = Field(0.0, ge=0)   # DNL per-code rms [LSB]
+    inl_peak_lsb:    float        = Field(0.0, ge=0)   # INL peak (sinusoidal) [LSB]
 
     @model_validator(mode="after")
     def _enob_within_bits(self):

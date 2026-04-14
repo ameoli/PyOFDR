@@ -144,3 +144,38 @@ class TestADCEnob:
     def test_pydantic_rejects_enob_above_bits(self):
         with pytest.raises(Exception):
             RootConfig(adc={"bits": 12, "enob": 14})
+
+
+class TestADCNonlinearity:
+
+    def _cfg(self, **adc_overrides):
+        cfg = {**CFG, "adc": {**CFG["adc"], **adc_overrides}}
+        cfg["detection"] = {**CFG["detection"], "shot_noise": False,
+                             "thermal_nep": 0, "dark_current": 0}
+        return cfg
+
+    def test_zero_nl_matches_baseline(self):
+        a = run_campaign(self._cfg())[-1]
+        b = run_campaign(self._cfg(dnl_rms_lsb=0.0, inl_peak_lsb=0.0))[-1]
+        np.testing.assert_array_equal(a.digital_main, b.digital_main)
+
+    def test_inl_changes_output(self):
+        clean = run_campaign(self._cfg())[-1]
+        bent  = run_campaign(self._cfg(inl_peak_lsb=20.0))[-1]
+        assert not np.array_equal(clean.digital_main, bent.digital_main)
+
+    def test_dnl_changes_output(self):
+        clean = run_campaign(self._cfg())[-1]
+        bent  = run_campaign(self._cfg(dnl_rms_lsb=0.5))[-1]
+        assert not np.array_equal(clean.digital_main, bent.digital_main)
+
+    def test_nl_is_deterministic(self):
+        # DNL realisation is seeded from sim seed, so two runs match
+        a = run_campaign(self._cfg(dnl_rms_lsb=0.5))[-1]
+        b = run_campaign(self._cfg(dnl_rms_lsb=0.5))[-1]
+        np.testing.assert_array_equal(a.digital_main, b.digital_main)
+
+    def test_digital_still_in_range(self):
+        acq = run_campaign(self._cfg(dnl_rms_lsb=1.0, inl_peak_lsb=50.0))[-1]
+        assert np.all(acq.digital_main >= -32768)
+        assert np.all(acq.digital_main <= 32767)

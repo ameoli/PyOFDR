@@ -14,6 +14,13 @@ into one number, see e.g. ADI MT-003.
 
 If enob is unset (or equals bits) we don't add anything and the ADC
 stays purely quantization-noise limited.
+
+DNL (differential non-linearity) and INL (integral non-linearity) are
+the per-code deviations from the ideal transfer characteristic. We
+build a single LSB-offset curve at __init__ time (once per chip) and
+apply it after quantization. INL is a sinusoid across the code range,
+DNL is a random walk with zero endpoint drift. See e.g. Kester, "The
+Data Conversion Handbook", chapter 2.
 """
 
 from __future__ import annotations
@@ -39,7 +46,36 @@ class ADC(PipelineStep):
         self.n_levels = 2 ** self.bits
         self.enob = adc["enob"]   # may be None
         self.jitter_rms = adc["jitter_rms"]
+        self.dnl_rms_lsb  = adc["dnl_rms_lsb"]
+        self.inl_peak_lsb = adc["inl_peak_lsb"]
         self.seed = self.config["simulation"]["seed"]
+
+        # DNL / INL: these are physical chip-level imperfections, fixed
+        # once the part is manufactured. So we compute one realisation up
+        # front and reuse it across all sweeps. INL is modelled as a
+        # single sinusoid spanning the code range, DNL as a random
+        # cumulative walk (each step ~ N(0, dnl_rms)). Final curve[k] is
+        # the offset in LSB to subtract from code k.
+        self._nl_curve = None   # filled lazily on first use
+        if self.dnl_rms_lsb > 0 or self.inl_peak_lsb > 0:
+            self._nl_curve = self._build_nl_curve()
+
+    def _build_nl_curve(self):
+        import numpy as _np
+        k = _np.arange(self.n_levels) - self.n_levels // 2
+        curve = _np.zeros(self.n_levels)
+        if self.inl_peak_lsb > 0:
+            curve += self.inl_peak_lsb * _np.sin(
+                2.0 * _np.pi * (k + self.n_levels // 2) / self.n_levels)
+        if self.dnl_rms_lsb > 0:
+            rng = self.bk.random_generator(
+                derive_seed(self.seed, component="adc", sub=2))
+            # cumulative DNL, zero-mean-detrended so it doesn't add a
+            # monotonic ramp (that would just be a gain error).
+            walk = _np.cumsum(rng.standard_normal(self.n_levels)) * self.dnl_rms_lsb
+            walk -= _np.linspace(0, walk[-1], self.n_levels)
+            curve += walk
+        return curve
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.analog_main is None:
@@ -91,9 +127,19 @@ class ADC(PipelineStep):
         digital = xp.floor(normalized * half).astype(xp.int32)
         digital = xp.clip(digital, -half, half - 1)
 
+        # DNL/INL: shift each output code by the precomputed nonlinearity
+        # curve (in LSB).  index with (code + half) to land in [0, n_levels).
+        if self._nl_curve is not None:
+            curve = xp.asarray(self._nl_curve)
+            offset = curve[digital + half]
+            digital = xp.floor(digital + offset).astype(xp.int32)
+            digital = xp.clip(digital, -half, half - 1)
+
         acq.digital_main = digital.astype(xp.int16)
 
         acq.add_log("adc", bits=self.bits, enob=self.enob,
                      jitter_rms_ps=self.jitter_rms * 1e12,
+                     dnl_rms_lsb=self.dnl_rms_lsb,
+                     inl_peak_lsb=self.inl_peak_lsb,
                      lsb_uV=self.voltage_range / self.n_levels * 1e6)
         return acq
