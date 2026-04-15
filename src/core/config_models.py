@@ -71,6 +71,22 @@ class AttenuationSegment(_Strict):
         return self
 
 
+class BendSegment(_Strict):
+    start:  Length
+    end:    Length
+    radius: Length = Field(..., gt=0)
+    turns:  float  = Field(..., gt=0)
+    # SMF-28 ballparks; override for other fibers
+    A_dB_per_turn: float = Field(100.0, gt=0)
+    R_c:           Length = Field(5e-3,  gt=0)
+
+    @model_validator(mode="after")
+    def _check_order(self):
+        if self.end <= self.start:
+            raise ValueError(f"bend segment: end ({self.end}) must be > start ({self.start})")
+        return self
+
+
 class FiberConfig(_Strict):
     length: Length = Field(10.0, gt=0)
     n_core: float = Field(1.4682, gt=1.0)
@@ -79,6 +95,7 @@ class FiberConfig(_Strict):
     rayleigh_segments: list[RayleighSegment] = Field(default_factory=list)
     attenuation_dB_per_km: float = Field(0.0, ge=0)
     attenuation_segments: list[AttenuationSegment] = Field(default_factory=list)
+    bends: list[BendSegment] = Field(default_factory=list)
     reflectors: list[ReflectorEntry] = Field(default_factory=list)
 
 

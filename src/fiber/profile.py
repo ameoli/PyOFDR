@@ -8,6 +8,7 @@ from typing import Any
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 from fiber.attenuation import round_trip_attenuation, round_trip_attenuation_varying
+from fiber.bends import bend_loss_dB
 from fiber.reflectors import apply_connector_losses, inject_reflectors
 from utils.constants import C
 from utils.seeding import derive_seed
@@ -30,6 +31,7 @@ class FiberGenerator(PipelineStep):
         self.rayleigh_segments = fiber.get("rayleigh_segments", [])
         self.attenuation_dB_km = fiber["attenuation_dB_per_km"]
         self.attenuation_segments = fiber.get("attenuation_segments", [])
+        self.bends = fiber.get("bends", [])
         self.reflectors = fiber.get("reflectors", [])
         self.seed = self.config["simulation"]["seed"]
 
@@ -90,14 +92,26 @@ class FiberGenerator(PipelineStep):
             inject_reflectors(profile, z, dz, self.reflectors, xp=xp)
 
         # round-trip attenuation envelope. With per-segment overrides
-        # we build an alpha(z) vector and integrate cumulatively.
-        if self.attenuation_segments:
+        # or bends we build an alpha(z) vector and integrate cumulatively.
+        if self.attenuation_segments or self.bends:
             alpha_z = xp.full(n_z, float(self.attenuation_dB_km))
             for seg in self.attenuation_segments:
                 mask = (z >= seg["start"]) & (z < seg["end"])
                 alpha_z = xp.where(mask,
                                    seg["attenuation_dB_per_km"],
                                    alpha_z)
+            # bends add excess dB/km on top of the base alpha across
+            # their section. Total loss for the bend is spread
+            # uniformly over [start, end).
+            for bend in self.bends:
+                seg_len_m = bend["end"] - bend["start"]
+                if seg_len_m <= 0:
+                    continue
+                total_dB = bend_loss_dB(bend["radius"], bend["turns"],
+                                         bend["A_dB_per_turn"], bend["R_c"])
+                extra_dB_km = total_dB / (seg_len_m / 1000.0)
+                mask = (z >= bend["start"]) & (z < bend["end"])
+                alpha_z = xp.where(mask, alpha_z + extra_dB_km, alpha_z)
             attenuation = round_trip_attenuation_varying(z, alpha_z, dz, xp=xp)
         else:
             attenuation = round_trip_attenuation(z, self.attenuation_dB_km, xp=xp)
