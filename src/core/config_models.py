@@ -105,6 +105,10 @@ class SourceConfig(_Strict):
     sweep_duration:    Time      = Field(0.01,    gt=0)
     power:             Power     = Field(10e-3,   gt=0)
     linewidth:         Frequency = Field(0.0, ge=0)   # FWHM Lorentzian
+    # coloured FM contributions beyond the Lorentzian white term.
+    # Both are RMS frequency excursions [Hz] over the sampled bandwidth.
+    flicker_noise_Hz:     float = Field(0.0, ge=0)   # 1/f
+    random_walk_noise_Hz: float = Field(0.0, ge=0)   # 1/f^2
     rin_dB_per_Hz:     float | None = None   # RIN power spectral density [dB/Hz]
     # power envelope across the sweep: P(nu) drops by this many dB at the
     # sweep edges, parabolic shape (0.0 = flat / backward compat)

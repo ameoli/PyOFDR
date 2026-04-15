@@ -47,6 +47,11 @@ Very early prototype
 ## Licence
 MIT
 
+### Third-party code
+- [`felixpatzelt/colorednoise`](https://github.com/felixpatzelt/colorednoise) (MIT),
+  vendored as `src/utils/colorednoise.py` and used for the laser phase-noise
+  PSD shaping. License in `LICENSES/colorednoise-MIT.txt`.
+
 ## Issues & Contributions
 Report issues: https://github.com/ameoli/PyOFDR/issues
 Pull requests welcome!
