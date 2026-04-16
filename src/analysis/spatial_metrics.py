@@ -39,7 +39,7 @@ def measure_resolution(H, z, peak_z, level_dB=-6.0):
 
     # find peak near the requested position
     i_approx = int(np.argmin(np.abs(z - peak_z)))
-    margin = 5
+    margin = max(50, len(H) // 200)
     lo = max(0, i_approx - margin)
     hi = min(len(H), i_approx + margin + 1)
     i_peak = lo + int(np.argmax(amp_dB[lo:hi]))

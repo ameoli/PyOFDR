@@ -1,8 +1,8 @@
 """
 Physics:
-    nu(t) = nu_start + gamma * t        (instantanous frequency)
+    nu(t) = nu_start + gamma * t + a2*t^2 + a3*t^3 + ripple(t)
     phi(t) = 2pi * integral(nu) dt + phi_noise(t)
-    E(t) = sqrt(P) * exp(j*phi(t))      (optical field)
+    E(t) = sqrt(P) * exp(j*phi(t))
 
 phi_noise combines three frequency-noise contributions:
   - white FM   (Lorentzian linewidth) -> d_phi ~ N(0, sqrt(2*pi*lw*dt))
@@ -10,7 +10,9 @@ phi_noise combines three frequency-noise contributions:
   - random-walk FM (1/f^2)            -> powerlaw_psd_gaussian(beta=2)
 all generated in source/phase_noise.py.
 
-TODO: non-linear sweep correction
+Sweep nonlinearity (a2, a3, ripple) is opt-in: zero coefficients give
+the original linear chirp. The nonlinearity affects nu_inst and phi,
+and the MZI time-warps the beat signal accordingly (see mach_zehnder.py).
 """
 
 from __future__ import annotations
@@ -43,6 +45,10 @@ class SweptLaser(PipelineStep):
         self.sigma_rw      = source["random_walk_noise_Hz"]
         self.rin_dB_per_Hz = source["rin_dB_per_Hz"]   # None or float
         self.envelope_edge_dB = source["power_envelope_edge_dB"]
+        self.nl_a2 = source["sweep_nonlinearity_a2"]
+        self.nl_a3 = source["sweep_nonlinearity_a3"]
+        self.ripple_amp = source["sweep_ripple_amplitude"]
+        self.ripple_period = source["sweep_ripple_period"]
         self.sample_rate = self.config["adc"]["sample_rate"]
         self.seed = self.config["simulation"]["seed"]
 
@@ -59,9 +65,15 @@ class SweptLaser(PipelineStep):
         n_samples = int(math.ceil(self.sweep_duration * self.sample_rate))
         t = xp.arange(n_samples) * dt
 
-        # instantanous frequency (linear ramp)
+        # instantanous frequency: linear ramp + optional nonlinearity
         nu_start = self.nu_center - self.sweep_range_hz / 2.0
         nu_inst = nu_start + self.gamma * t
+
+        if self.nl_a2 != 0 or self.nl_a3 != 0:
+            nu_inst = nu_inst + self.nl_a2 * t**2 + self.nl_a3 * t**3
+        if self.ripple_amp > 0 and self.ripple_period > 0:
+            nu_inst = nu_inst + self.ripple_amp * xp.sin(
+                2.0 * math.pi * t / self.ripple_period)
 
         # phase = 2pi * cumulative sum (rectangle rule integration)
         phi = 2.0 * math.pi * xp.cumsum(nu_inst) * dt

@@ -113,6 +113,15 @@ class SourceConfig(_Strict):
     # power envelope across the sweep: P(nu) drops by this many dB at the
     # sweep edges, parabolic shape (0.0 = flat / backward compat)
     power_envelope_edge_dB: float = Field(0.0, ge=0)
+    # sweep nonlinearity: polynomial deviation from the ideal linear chirp.
+    # nu(t) = nu_start + gamma*t + a2*t^2 + a3*t^3 + ripple
+    # a2 [Hz/s^2], a3 [Hz/s^3], all default 0 (perfectly linear).
+    sweep_nonlinearity_a2: float = 0.0
+    sweep_nonlinearity_a3: float = 0.0
+    # sinusoidal ripple on the instantaneous frequency [Hz amplitude]
+    sweep_ripple_amplitude: Frequency = Field(0.0, ge=0)
+    # ripple period [s] -- zero disables the ripple
+    sweep_ripple_period: Time = Field(0.0, ge=0)
 
 
 class StrainSegment(_Strict):

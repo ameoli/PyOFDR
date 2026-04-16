@@ -1,8 +1,14 @@
 """Mach-Zehnder interferomter
 
-For a perfectly linear sweep, the beat signal is just the IFFT of the fiber profile. This is the key insight that makes the simulation O(N*log(N)) instead of O(N^2).
-Each spatial bin k corresponds to beat frequency f_k, so the IFFT directly gives us the time-domain beat signal.
-For now no auxiliary interferometer (k-clock) -- that comes later. Also no circulator model, no phase noise on the beat.
+For a perfectly linear sweep, the beat signal is just the IFFT of the
+fiber profile. This is the key insight that makes the simulation
+O(N*log(N)) instead of O(N^2). Each spatial bin k corresponds to beat
+frequency f_k, so the IFFT directly gives us the time-domain beat signal.
+
+When the laser has sweep nonlinearity (a2, a3, ripple), each scatterer's
+beat frequency wobbles in the same way. This is equivalent to a
+time-warp of the ideal linear beat signal. The warp is computed from
+the integrated frequency deviation, then applied via linear interpolation.
 
 TODO: add auxiliary MZI for k-linearization
 add differential phase noise at each delay
@@ -13,9 +19,13 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import numpy as np
+
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 from optics.components import Circulator
+from utils.constants import C
+from utils.units import wavelength_range_to_freq_range
 
 
 class MachZehnder(PipelineStep):
@@ -27,6 +37,16 @@ class MachZehnder(PipelineStep):
         self.splitting_ratio = self.config["optics"]["splitting_ratio"]
         circ_cfg = self.config["optics"].get("circulator", {})
         self.circulator = Circulator(**circ_cfg)
+
+        src = self.config["source"]
+        self.nl_a2 = src["sweep_nonlinearity_a2"]
+        self.nl_a3 = src["sweep_nonlinearity_a3"]
+        self.ripple_amp = src["sweep_ripple_amplitude"]
+        self.ripple_period = src["sweep_ripple_period"]
+        self._has_nonlinearity = (
+            self.nl_a2 != 0 or self.nl_a3 != 0
+            or (self.ripple_amp > 0 and self.ripple_period > 0)
+        )
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.fiber_profile is None:
@@ -52,6 +72,12 @@ class MachZehnder(PipelineStep):
         ], axis=-1)
         beat = self.bk.fft.ifft(h, axis=-1) * acq.n_samples
 
+        # time-warp for sweep nonlinearity: if the chirp rate varies,
+        # each scatterer's beat freq scales by dnu/dt / gamma. This is
+        # equivalent to resampling the ideal beat at warped time indices.
+        if self._has_nonlinearity:
+            beat = self._apply_time_warp(beat, acq)
+
         # circulator: signal passes through twice (to fiber and back)
         IL2 = self.circulator.round_trip_transmission
 
@@ -61,5 +87,47 @@ class MachZehnder(PipelineStep):
         acq.photocurrent_main = scale * xp.real(beat)
 
         acq.add_log("optics", topology="mach_zehnder", scale=float(scale),
-                     circulator_IL_dB=self.circulator.insertion_loss_dB)
+                     circulator_IL_dB=self.circulator.insertion_loss_dB,
+                     sweep_nonlinearity=self._has_nonlinearity)
         return acq
+
+    def _apply_time_warp(self, beat, acq):
+        """Resample the ideal-chirp beat to account for sweep nonlinearity.
+
+        The frequency deviation delta_nu(t) = a2*t^2 + a3*t^3 + ripple(t)
+        maps to a time warp: optical-frequency time s(t) = t + delta_int(t)/gamma,
+        where delta_int is the integrated frequency deviation normalised
+        by the ideal chirp rate.
+        """
+        xp = self.bk.xp
+        src = self.config["source"]
+        wl = src["center_wavelength"]
+        dwl = src["sweep_range"]
+        T = src["sweep_duration"]
+        gamma = wavelength_range_to_freq_range(wl, dwl) / T
+
+        dt = acq.dt
+        n = acq.n_samples
+        t = xp.arange(n) * dt
+
+        # integrated frequency deviation (cumsum * dt approximates the integral)
+        delta_nu = xp.zeros(n, dtype=xp.float64)
+        if self.nl_a2 != 0 or self.nl_a3 != 0:
+            delta_nu = delta_nu + self.nl_a2 * t**2 + self.nl_a3 * t**3
+        if self.ripple_amp > 0 and self.ripple_period > 0:
+            delta_nu = delta_nu + self.ripple_amp * xp.sin(
+                2.0 * math.pi * t / self.ripple_period)
+
+        delta_int = xp.cumsum(delta_nu) * dt   # integral of delta_nu
+
+        # warped time: where in the "ideal" timeline each real sample falls
+        s = t + delta_int / gamma
+
+        # resample each core via linear interpolation
+        t_ideal = t   # the uniform grid the IFFT beat lives on
+        n_c = beat.shape[0]
+        warped = xp.empty_like(beat)
+        for c in range(n_c):
+            warped[c] = xp.interp(s, t_ideal, xp.real(beat[c]))
+
+        return warped
