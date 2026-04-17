@@ -94,10 +94,12 @@ class MachZehnder(PipelineStep):
     def _apply_time_warp(self, beat, acq):
         """Resample the ideal-chirp beat to account for sweep nonlinearity.
 
-        The frequency deviation delta_nu(t) = a2*t^2 + a3*t^3 + ripple(t)
-        maps to a time warp: optical-frequency time s(t) = t + delta_int(t)/gamma,
-        where delta_int is the integrated frequency deviation normalised
-        by the ideal chirp rate.
+        For a scatterer at round-trip delay tau the physical beat phase
+        is 2*pi*tau*nu(t) (small tau), while the ideal-chirp beat at time
+        s has phase 2*pi*gamma*tau*s. Setting them equal ->
+            s(t) = t + delta_nu(t) / gamma
+        with delta_nu the instantaneous frequency deviation from the linear
+        ramp.  Same mapping for a general fiber since it's tau-independent.
         """
         xp = self.bk.xp
         src = self.config["source"]
@@ -110,7 +112,7 @@ class MachZehnder(PipelineStep):
         n = acq.n_samples
         t = xp.arange(n) * dt
 
-        # integrated frequency deviation (cumsum * dt approximates the integral)
+        # instantaneous frequency deviation from the linear ramp
         delta_nu = xp.zeros(n, dtype=xp.float64)
         if self.nl_a2 != 0 or self.nl_a3 != 0:
             delta_nu = delta_nu + self.nl_a2 * t**2 + self.nl_a3 * t**3
@@ -118,10 +120,8 @@ class MachZehnder(PipelineStep):
             delta_nu = delta_nu + self.ripple_amp * xp.sin(
                 2.0 * math.pi * t / self.ripple_period)
 
-        delta_int = xp.cumsum(delta_nu) * dt   # integral of delta_nu
-
         # warped time: where in the "ideal" timeline each real sample falls
-        s = t + delta_int / gamma
+        s = t + delta_nu / gamma
 
         # resample each core via linear interpolation
         t_ideal = t   # the uniform grid the IFFT beat lives on
