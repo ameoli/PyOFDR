@@ -6,6 +6,8 @@ strain is effectively constant during a single sweep (sweep_duration <<
 1/f_vib).
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -171,6 +173,37 @@ class TestCampaignWithHarmonicMotion:
         ], n_sweeps=2)
         acqs = run_campaign(cfg)
         assert acqs[0].strain_field is not None
+
+    def test_nyquist_warning_at_or_above_half_sweep_rate(self):
+        """Motion freq >= 1/(2*T_sweep) should emit a UserWarning."""
+        # T_sweep = 10 ms -> Nyquist = 50 Hz
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "harmonic", "amplitude": 1e-4,
+                         "frequency": 60.0, "phase": 0.0}},
+        ], n_sweeps=2)
+        with pytest.warns(UserWarning, match="Nyquist"):
+            run_campaign(cfg)
+
+    def test_nyquist_warning_at_exact_boundary(self):
+        """Exactly at Nyquist is the classic zero-crossing trap."""
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "harmonic", "amplitude": 1e-4,
+                         "frequency": 50.0, "phase": 0.0}},
+        ], n_sweeps=2)
+        with pytest.warns(UserWarning, match="Nyquist"):
+            run_campaign(cfg)
+
+    def test_no_warning_below_nyquist(self):
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "harmonic", "amplitude": 1e-4,
+                         "frequency": 20.0, "phase": 0.0}},
+        ], n_sweeps=2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")   # turn warnings into errors
+            run_campaign(cfg)                # should not raise
 
     def test_reflectogram_shows_motion(self):
         """End-to-end: a strained segment under harmonic motion produces

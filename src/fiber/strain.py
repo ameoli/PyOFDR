@@ -21,6 +21,7 @@ ideal, cox shear-lag is available via config.
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any
 
 from core.acquisition import Acquisition
@@ -54,6 +55,24 @@ class StrainPerturbation(PipelineStep):
         self._cached_profile = None
         self._cached_strain = None
         self._cached_base_profile = None    # base (unstrained) profile reference
+
+        # cheap sanity check: the inter-sweep sample rate is 1/sweep_duration,
+        # so motions with f >= 1/(2*T_sweep) alias. at f == Nyquist with
+        # phase=0 you can even land on zero-crossings every sweep, which is an
+        # easy trap. warn; don't refuse (user may want to probe that regime).
+        if self._has_motion:
+            f_nyq = 0.5 / self.sweep_duration
+            for i, seg in enumerate(self.segments):
+                motion = seg.get("motion")
+                if motion is None:
+                    continue
+                f = motion.get("frequency", 0.0)
+                if motion["kind"] == "harmonic" and f >= f_nyq:
+                    warnings.warn(
+                        f"strain segment {i}: motion frequency {f:g} Hz >= "
+                        f"sweep-rate Nyquist {f_nyq:g} Hz; expect aliasing",
+                        stacklevel=2,
+                    )
 
     def process(self, acq: Acquisition) -> Acquisition:
         if not self.segments:
