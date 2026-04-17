@@ -31,6 +31,10 @@ class Acquisition:
     analog_main: np.ndarray | None = None         # (n_cores, n_t), V
     digital_main: np.ndarray | None = None        # (n_cores, n_t), int16
 
+    # auxiliary MZI (k-clock) -- single-channel, same length as main
+    aux_signal: np.ndarray | None = None          # (n_t,), real, dimensionless
+    aux_valid_start: int = 0                      # first valid sample (drop earlier)
+
     log: list[dict] = field(default_factory=list)
 
     def add_log(self, step_name, **kwargs):

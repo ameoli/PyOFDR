@@ -159,9 +159,25 @@ class CirculatorConfig(_Strict):
     return_loss_dB:    float = Field(55.0, ge=0)
 
 
+class AuxMZIConfig(_Strict):
+    # auxiliary (k-clock) Mach-Zehnder -- a short interferometer with a known
+    # delay that tracks the instantaneous optical frequency. Its phase is used
+    # to resample the main beat onto a uniform-nu grid (see analysis/demodulation).
+    # off by default so existing configs keep working.
+    enabled: bool = False
+    delay:   Time = Field(0.0, ge=0)   # round-trip delay [s], typical 10-500 ns
+
+
 class OpticsConfig(_Strict):
     splitting_ratio: float = Field(0.5, gt=0, lt=1)
     circulator: CirculatorConfig = Field(default_factory=CirculatorConfig)
+    aux_mzi: AuxMZIConfig = Field(default_factory=AuxMZIConfig)
+
+    @model_validator(mode="after")
+    def _aux_needs_delay(self):
+        if self.aux_mzi.enabled and self.aux_mzi.delay <= 0:
+            raise ValueError("optics.aux_mzi.enabled=true requires a positive delay")
+        return self
 
 
 class DetectionConfig(_Strict):

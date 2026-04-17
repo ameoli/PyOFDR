@@ -8,7 +8,8 @@ Three levels of processing, all operating on numpy arrays:
   3. Cross-spectrum frequency shift: two spectra -> spectral shift
      in Hz at each position (the standard Rayleigh-based method)
 
-Plus conversion helpers (freq shift <-> strain / temperature).
+Plus k-clock resampling (aux-MZI-based sweep linearisation) and
+conversion helpers (freq shift <-> strain / temperature).
 
 All core functions take plain arrays so they can be tested without
 running the full simulation pipeline.
@@ -19,6 +20,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from scipy.signal import hilbert as _hilbert
 
 from utils.constants import C
 
@@ -169,6 +171,74 @@ def cross_spectrum_shift(H_meas, H_ref, dz, n=1.4682, smooth_bins=0):
     tau_cell = 2.0 * n * dz / C
     freq_shift = phase / (2.0 * math.pi * tau_cell)
     return freq_shift
+
+
+# ── k-clock resampling (aux-MZI based sweep linearisation) ─────────
+
+def kclock_resample(beat, aux, trim_start=0, n_out=None):
+    """Resample the main beat onto a uniform optical-frequency grid.
+
+    The auxiliary interferometer produces  cos(phi(t) - phi(t-tau))  whose
+    unwrapped Hilbert phase is a monotonic function of the instantaneous
+    optical frequency. Interpolating the main beat onto a uniform grid in
+    that phase is equivalent to resampling at constant delta-nu, which
+    cancels any sweep nonlinearity before the FFT.
+
+    Parameters
+    ----------
+    beat : 1-D real array
+        Main detector beat signal (uniform-time samples).
+    aux : 1-D real array
+        Auxiliary MZI signal on the same time grid.
+    trim_start : int
+        Drop the first `trim_start` samples from both arrays. The aux step
+        leaves the initial n_tau samples invalid (see AuxMZI.aux_valid_start).
+    n_out : int or None
+        Length of the resampled output. Defaults to len(beat) - trim_start.
+
+    Returns
+    -------
+    beat_resampled : 1-D real array
+    """
+    beat = np.asarray(beat, dtype=np.float64)
+    aux  = np.asarray(aux,  dtype=np.float64)
+    if beat.shape != aux.shape:
+        raise ValueError("beat and aux must have the same length")
+    if beat.ndim != 1:
+        raise ValueError("kclock_resample expects 1-D arrays")
+
+    if trim_start > 0:
+        beat = beat[trim_start:]
+        aux  = aux[trim_start:]
+    if len(aux) < 4:
+        raise ValueError("aux signal too short after trimming")
+
+    # analytic signal -> unwrapped phase. Remove DC first so the Hilbert
+    # transform doesn't produce a large low-freq component on the imaginary
+    # part that corrupts the phase near the edges.
+    analytic = _hilbert(aux - aux.mean())
+    phi = np.unwrap(np.angle(analytic))
+
+    # we want a monotonically increasing phase (sweep nu goes up). If the
+    # Hilbert happened to pick the conjugate branch, flip.
+    if phi[-1] < phi[0]:
+        phi = -phi
+
+    if not np.all(np.diff(phi) > 0):
+        # allow a handful of tiny non-monotonic glitches near the edges (Hilbert
+        # artefact) but bail out if the whole signal is broken.
+        n_bad = int(np.sum(np.diff(phi) <= 0))
+        if n_bad > len(phi) // 100:
+            raise ValueError(
+                f"aux phase is non-monotonic ({n_bad} samples); "
+                "sweep may have reversed or aux is too noisy"
+            )
+
+    if n_out is None:
+        n_out = len(beat)
+
+    phi_uniform = np.linspace(phi[0], phi[-1], n_out)
+    return np.interp(phi_uniform, phi, beat)
 
 
 # ── Conversions ──────────────────────────────────────────────────────

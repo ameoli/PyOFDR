@@ -27,6 +27,7 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
     from fiber.strain import StrainPerturbation
     from source.swept_laser import SweptLaser
     from optics.mach_zehnder import MachZehnder
+    from optics.aux_mzi import AuxMZI
     from detection.detector import Detector
     from detection.filter import AntiAliasFilter
     from digitizer.adc import ADC
@@ -47,6 +48,7 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
         StrainPerturbation(cfg),
         SweptLaser(cfg),
         MachZehnder(cfg),
+        AuxMZI(cfg),     # no-op unless optics.aux_mzi.enabled
         Detector(cfg),
         AntiAliasFilter(cfg),
         ADC(cfg),
