@@ -21,6 +21,11 @@ how the cable / coating couples to the host. Two models so far:
 
 Both models expose `apply(segments, z, xp=...)` and return an array
 shaped like z. Used by the strain perturbation step in fiber/strain.py.
+
+For dynamic (inter-sweep) perturbations, segments may carry a `motion`
+field (see config_models.HarmonicMotion). evaluate_motion and
+realize_segments convert such segments into a time-frozen list of
+static segments so transfer.apply keeps working unchanged.
 """
 
 from __future__ import annotations
@@ -33,6 +38,27 @@ import numpy as np
 
 class StrainTransfer(Protocol):
     def apply(self, segments: list, z: np.ndarray, *, xp=np) -> np.ndarray: ...
+
+
+def evaluate_motion(motion: dict | None, t: float) -> float:
+    """Return the extra epsilon contributed by a dynamic motion at lab time t."""
+    if motion is None:
+        return 0.0
+    kind = motion["kind"]
+    if kind == "harmonic":
+        return motion["amplitude"] * math.sin(
+            2.0 * math.pi * motion["frequency"] * t + motion["phase"])
+    raise ValueError(f"unknown motion kind: {kind!r}")
+
+
+def realize_segments(segments: list, t: float) -> list:
+    """Freeze any dynamic motion at time t -> plain static segments."""
+    out = []
+    for seg in segments:
+        eps = seg["epsilon"] + evaluate_motion(seg.get("motion"), t)
+        # strip the motion field so downstream code doesn't re-apply it
+        out.append({**seg, "epsilon": eps, "motion": None})
+    return out
 
 
 class IdealTransfer:

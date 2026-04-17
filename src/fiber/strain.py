@@ -9,13 +9,13 @@ p_e is the strain-optic (photoelastic) coefficient, ~0.22 for silica
 at 1550 nm. The (1 - p_e) factor folds in the index change due to the
 strain itself, otherwise we'd be double-counting the geometric stretch.
 
-For now: uniform (in time) strain on a list of segments. Harmonic /
-propagating / thermal-transient perturbations come later, see the
-roadmap. Host->fiber transfer is delegated to strain_transfer; default
-is ideal, cox shear-lag is available via config.
+Segments may carry an optional `motion` field (harmonic for now) that
+varies the strain across sweeps at the sweep rate (t_sweep =
+sweep_index * sweep_duration). Static segments are cached as before;
+segments with motion trigger recomputation every sweep.
 
-TODO: let the user pass a time-varying eps(t) per segment for
-multi-sweep scenarios.
+Host->fiber transfer is delegated to strain_transfer; default is
+ideal, cox shear-lag is available via config.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from typing import Any
 
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
-from strain_transfer import CoxShearLag, IdealTransfer
+from strain_transfer import CoxShearLag, IdealTransfer, realize_segments
 
 
 class StrainPerturbation(PipelineStep):
@@ -40,6 +40,7 @@ class StrainPerturbation(PipelineStep):
         self.p_e = strain["photoelastic_coefficient"]
         self.center_wl = self.config["source"]["center_wavelength"]
         self.n_core = self.config["fiber"]["n_core"]
+        self.sweep_duration = self.config["source"]["sweep_duration"]
 
         kind = strain["transfer"]
         if kind == "ideal":
@@ -49,16 +50,21 @@ class StrainPerturbation(PipelineStep):
         else:
             raise ValueError(f"unknown strain.transfer: {kind!r}")
 
+        self._has_motion = any(s.get("motion") is not None for s in self.segments)
         self._cached_profile = None
         self._cached_strain = None
+        self._cached_base_profile = None    # base (unstrained) profile reference
 
     def process(self, acq: Acquisition) -> Acquisition:
         if not self.segments:
             return acq
-        if self._cached_profile is not None:
+
+        # static case: cache strained profile, reuse it across sweeps
+        if not self._has_motion and self._cached_profile is not None:
             acq.fiber_profile = self._cached_profile
             acq.strain_field = self._cached_strain
             return acq
+
         if acq.fiber_profile is None or acq.z is None:
             raise RuntimeError("StrainPerturbation: fiber_profile/z not set")
 
@@ -66,7 +72,17 @@ class StrainPerturbation(PipelineStep):
         z = acq.z
         dz = acq.dz
 
-        eps_fiber = self.transfer.apply(self.segments, z, xp=xp)
+        # remember the base (unstrained) profile so dynamic sweeps keep applying
+        # the phase to the fresh profile, not to an already-strained one.
+        if self._cached_base_profile is None:
+            self._cached_base_profile = acq.fiber_profile
+        base_profile = self._cached_base_profile
+
+        # freeze motion at the sweep's lab time
+        t_sweep = acq.sweep_index * self.sweep_duration
+        current_segments = realize_segments(self.segments, t_sweep)
+
+        eps_fiber = self.transfer.apply(current_segments, z, xp=xp)
 
         k0 = 2.0 * math.pi / self.center_wl
         prefactor = 2.0 * k0 * self.n_core * (1.0 - self.p_e)
@@ -75,15 +91,18 @@ class StrainPerturbation(PipelineStep):
         phase = prefactor * xp.cumsum(eps_fiber) * dz
 
         acq.strain_field = eps_fiber
-
         # uniform axial strain affects every core the same way
-        acq.fiber_profile = acq.fiber_profile * xp.exp(1j * phase)
-        self._cached_profile = acq.fiber_profile
-        self._cached_strain = eps_fiber
+        acq.fiber_profile = base_profile * xp.exp(1j * phase)
+
+        if not self._has_motion:
+            self._cached_profile = acq.fiber_profile
+            self._cached_strain = eps_fiber
 
         acq.add_log("strain",
                      n_segments=len(self.segments),
                      transfer=type(self.transfer).__name__,
                      max_eps=float(xp.max(xp.abs(eps_fiber))),
+                     dynamic=self._has_motion,
+                     t_sweep=t_sweep,
                      p_e=self.p_e)
         return acq

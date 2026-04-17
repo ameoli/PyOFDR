@@ -124,10 +124,20 @@ class SourceConfig(_Strict):
     sweep_ripple_period: Time = Field(0.0, ge=0)
 
 
+class HarmonicMotion(_Strict):
+    """Sinusoidal strain modulation in lab time (across sweeps)."""
+    kind:      Literal["harmonic"] = "harmonic"
+    amplitude: float     = Field(..., ge=0)      # strain amplitude
+    frequency: Frequency = Field(..., gt=0)      # Hz
+    phase:     float     = 0.0                   # radians
+
+
 class StrainSegment(_Strict):
     start:   Length
     end:     Length
-    epsilon: float
+    # static offset -- the motion adds on top of this
+    epsilon: float = 0.0
+    motion:  HarmonicMotion | None = None
 
     @model_validator(mode="after")
     def _check_order(self):
