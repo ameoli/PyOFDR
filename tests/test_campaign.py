@@ -194,3 +194,31 @@ class TestHDF5Writer:
             assert "sweeps/0000/digital_main" in f
             assert "sweeps/0001/digital_main" in f
             assert "sweeps/0002/digital_main" in f
+
+    def test_aux_signal_persisted_when_enabled(self, tmp_path):
+        """With aux_mzi enabled the aux waveform is saved per-sweep."""
+        path = tmp_path / "aux.h5"
+        cfg = {**CFG,
+               "optics": {**CFG["optics"],
+                          "aux_mzi": {"enabled": True, "delay": 50e-9}},
+               "output": {"path": str(path)}}
+        run_campaign(cfg)
+
+        import h5py
+        with h5py.File(path, "r") as f:
+            assert "sweeps/0000/aux_signal" in f
+            aux = f["sweeps/0000/aux_signal"][:]
+            assert aux.ndim == 1
+            assert np.max(np.abs(aux)) <= 1.0 + 1e-6
+            valid = f["sweeps/0000/aux_signal"].attrs["valid_start"]
+            assert valid > 0
+
+    def test_no_aux_signal_key_when_disabled(self, tmp_path):
+        """Default config (aux off) should not write an aux_signal dataset."""
+        path = tmp_path / "no_aux.h5"
+        cfg = {**CFG, "output": {"path": str(path)}}
+        run_campaign(cfg)
+
+        import h5py
+        with h5py.File(path, "r") as f:
+            assert "sweeps/0000/aux_signal" not in f

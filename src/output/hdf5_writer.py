@@ -11,6 +11,7 @@ Layout:
     /fiber/strain_field     applied strain eps(z), if present
     /sweeps/0000/digital_main   (n_cores, n_t) int16
     /sweeps/0000/analog_main    (n_cores, n_t) float32
+    /sweeps/0000/aux_signal     (n_t,) float32, present iff aux MZI enabled
     /sweeps/0000/log            JSON string
 """
 
@@ -77,5 +78,10 @@ class HDF5Writer:
         if acq.analog_main is not None:
             grp.create_dataset("analog_main", data=np.asarray(acq.analog_main, dtype=np.float32),
                                compression="gzip", compression_opts=4)
+        if acq.aux_signal is not None:
+            ds = grp.create_dataset("aux_signal",
+                                     data=np.asarray(acq.aux_signal, dtype=np.float32),
+                                     compression="gzip", compression_opts=4)
+            ds.attrs["valid_start"] = acq.aux_valid_start
 
         grp.attrs["log"] = json.dumps(acq.log)
