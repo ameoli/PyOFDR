@@ -23,9 +23,9 @@ Both models expose `apply(segments, z, xp=...)` and return an array
 shaped like z. Used by the strain perturbation step in fiber/strain.py.
 
 For dynamic (inter-sweep) perturbations, segments may carry a `motion`
-field (see config_models.HarmonicMotion). evaluate_motion and
-realize_segments convert such segments into a time-frozen list of
-static segments so transfer.apply keeps working unchanged.
+field (harmonic / thermal / impulsive for now; see strain_transfer.motions
+for the registry). realize_segments collapses such segments to static
+ones at a given lab time so transfer.apply keeps working unchanged.
 """
 
 from __future__ import annotations
@@ -35,29 +35,11 @@ from typing import Protocol
 
 import numpy as np
 
+from strain_transfer.motions import check_motion_sampling, evaluate_motion
+
 
 class StrainTransfer(Protocol):
     def apply(self, segments: list, z: np.ndarray, *, xp=np) -> np.ndarray: ...
-
-
-def evaluate_motion(motion: dict | None, t: float) -> float:
-    """Return the extra epsilon contributed by a dynamic motion at lab time t."""
-    if motion is None:
-        return 0.0
-    kind = motion["kind"]
-    if kind == "harmonic":
-        return motion["amplitude"] * math.sin(
-            2.0 * math.pi * motion["frequency"] * t + motion["phase"])
-    if kind == "thermal":
-        # first-order relaxation; t starts at 0 so this is 0 at the first sweep
-        # and asymptotes to amplitude as t grows past a few tau.
-        return motion["amplitude"] * (1.0 - math.exp(-t / motion["tau"]))
-    if kind == "impulsive":
-        # gaussian pulse; peak at center_time, std dev = width
-        dt = t - motion["center_time"]
-        w  = motion["width"]
-        return motion["amplitude"] * math.exp(-0.5 * (dt / w) ** 2)
-    raise ValueError(f"unknown motion kind: {kind!r}")
 
 
 def realize_segments(segments: list, t: float) -> list:

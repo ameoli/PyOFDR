@@ -21,12 +21,12 @@ ideal, cox shear-lag is available via config.
 from __future__ import annotations
 
 import math
-import warnings
 from typing import Any
 
 from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 from strain_transfer import CoxShearLag, IdealTransfer, realize_segments
+from strain_transfer.motions import check_motion_sampling
 
 
 class StrainPerturbation(PipelineStep):
@@ -56,45 +56,13 @@ class StrainPerturbation(PipelineStep):
         self._cached_strain = None
         self._cached_base_profile = None    # base (unstrained) profile reference
 
-        # cheap sanity check: the inter-sweep sample rate is 1/sweep_duration,
-        # so motions with f >= 1/(2*T_sweep) alias. at f == Nyquist with
-        # phase=0 you can even land on zero-crossings every sweep, which is an
-        # easy trap. warn; don't refuse (user may want to probe that regime).
-        # For thermal, the analogous check is tau >> T_sweep -- a transient
-        # with tau < 2*T_sweep is basically a step by the second sample.
+        # sweep-rate sampling sanity check. motion-specific thresholds
+        # (Nyquist for harmonic, tau/width > 2*T_sweep for thermal/impulsive)
+        # live in strain_transfer.motions. warn; don't refuse (user may want
+        # to probe the aliased regime on purpose).
         if self._has_motion:
-            f_nyq = 0.5 / self.sweep_duration
             for i, seg in enumerate(self.segments):
-                motion = seg.get("motion")
-                if motion is None:
-                    continue
-                kind = motion["kind"]
-                if kind == "harmonic":
-                    f = motion.get("frequency", 0.0)
-                    if f >= f_nyq:
-                        warnings.warn(
-                            f"strain segment {i}: motion frequency {f:g} Hz >= "
-                            f"sweep-rate Nyquist {f_nyq:g} Hz; expect aliasing",
-                            stacklevel=2,
-                        )
-                elif kind == "thermal":
-                    tau = motion.get("tau", 0.0)
-                    if 0 < tau < 2.0 * self.sweep_duration:
-                        warnings.warn(
-                            f"strain segment {i}: thermal tau {tau:g} s < "
-                            f"2*sweep_duration ({2*self.sweep_duration:g} s); "
-                            f"transient under-sampled across sweeps",
-                            stacklevel=2,
-                        )
-                elif kind == "impulsive":
-                    width = motion.get("width", 0.0)
-                    if 0 < width < 2.0 * self.sweep_duration:
-                        warnings.warn(
-                            f"strain segment {i}: impulsive width {width:g} s < "
-                            f"2*sweep_duration ({2*self.sweep_duration:g} s); "
-                            f"pulse peak under-sampled across sweeps",
-                            stacklevel=2,
-                        )
+                check_motion_sampling(seg.get("motion"), self.sweep_duration, i)
 
     def process(self, acq: Acquisition) -> Acquisition:
         if not self.segments:
