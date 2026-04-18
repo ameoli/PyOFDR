@@ -60,19 +60,32 @@ class StrainPerturbation(PipelineStep):
         # so motions with f >= 1/(2*T_sweep) alias. at f == Nyquist with
         # phase=0 you can even land on zero-crossings every sweep, which is an
         # easy trap. warn; don't refuse (user may want to probe that regime).
+        # For thermal, the analogous check is tau >> T_sweep -- a transient
+        # with tau < 2*T_sweep is basically a step by the second sample.
         if self._has_motion:
             f_nyq = 0.5 / self.sweep_duration
             for i, seg in enumerate(self.segments):
                 motion = seg.get("motion")
                 if motion is None:
                     continue
-                f = motion.get("frequency", 0.0)
-                if motion["kind"] == "harmonic" and f >= f_nyq:
-                    warnings.warn(
-                        f"strain segment {i}: motion frequency {f:g} Hz >= "
-                        f"sweep-rate Nyquist {f_nyq:g} Hz; expect aliasing",
-                        stacklevel=2,
-                    )
+                kind = motion["kind"]
+                if kind == "harmonic":
+                    f = motion.get("frequency", 0.0)
+                    if f >= f_nyq:
+                        warnings.warn(
+                            f"strain segment {i}: motion frequency {f:g} Hz >= "
+                            f"sweep-rate Nyquist {f_nyq:g} Hz; expect aliasing",
+                            stacklevel=2,
+                        )
+                elif kind == "thermal":
+                    tau = motion.get("tau", 0.0)
+                    if 0 < tau < 2.0 * self.sweep_duration:
+                        warnings.warn(
+                            f"strain segment {i}: thermal tau {tau:g} s < "
+                            f"2*sweep_duration ({2*self.sweep_duration:g} s); "
+                            f"transient under-sampled across sweeps",
+                            stacklevel=2,
+                        )
 
     def process(self, acq: Acquisition) -> Acquisition:
         if not self.segments:

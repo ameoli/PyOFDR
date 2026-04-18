@@ -1,9 +1,10 @@
 """Tests for dynamic (inter-sweep) strain perturbations, issue #41.
 
-Only harmonic motion is implemented here -- propagating / thermal /
-impulsive models come later. The sweep-rate sampling assumption is that
-strain is effectively constant during a single sweep (sweep_duration <<
-1/f_vib).
+Harmonic and thermal (first-order relaxation) motions are implemented.
+Propagating wave / impulsive / random vibration still pending. The
+sweep-rate sampling assumption is that strain is effectively constant
+during a single sweep (sweep_duration << 1/f_vib, or sweep_duration <<
+tau for thermal).
 """
 
 import warnings
@@ -231,3 +232,75 @@ class TestCampaignWithHarmonicMotion:
         # phases should not all be equal (motion changes the strain shift)
         phases = np.array(phases)
         assert np.ptp(phases) > 0.01
+
+
+class TestThermalRelaxation:
+    """First-order relaxation motion: eps(t) = A*(1 - exp(-t/tau))."""
+
+    def test_zero_at_t0(self):
+        m = {"kind": "thermal", "amplitude": 1e-4, "tau": 1.0}
+        assert abs(evaluate_motion(m, 0.0)) < 1e-20
+
+    def test_one_minus_one_over_e_at_tau(self):
+        m = {"kind": "thermal", "amplitude": 2e-4, "tau": 0.5}
+        expected = 2e-4 * (1.0 - 1.0 / np.e)
+        assert abs(evaluate_motion(m, 0.5) - expected) < 1e-12
+
+    def test_asymptotes_to_amplitude(self):
+        m = {"kind": "thermal", "amplitude": 3e-4, "tau": 1.0}
+        # after 10 tau we're within exp(-10) ~ 4.5e-5 of the asymptote
+        val = evaluate_motion(m, 10.0)
+        assert abs(val - 3e-4) < 3e-4 * 5e-5
+
+    def test_negative_amplitude_allowed(self):
+        # cooling / contraction -- sign matters, phase doesn't help here
+        m = {"kind": "thermal", "amplitude": -1e-4, "tau": 1.0}
+        assert evaluate_motion(m, 1.0) < 0
+
+    def test_realize_adds_on_top_of_static(self):
+        segs = [{"start": 0.0, "end": 1.0, "epsilon": 1e-4,
+                 "motion": {"kind": "thermal", "amplitude": 2e-4, "tau": 1.0}}]
+        out = realize_segments(segs, 1.0)   # t = tau
+        expected = 1e-4 + 2e-4 * (1.0 - 1.0 / np.e)
+        assert abs(out[0]["epsilon"] - expected) < 1e-12
+
+    def test_strain_trace_matches_exponential(self):
+        """Campaign traces out A*(1-exp(-t/tau)) across sweeps."""
+        amp = 1e-4
+        tau = 0.05   # 50 ms, 5 x T_sweep
+        n_sweeps = 20
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "thermal", "amplitude": amp, "tau": tau}},
+        ], n_sweeps=n_sweeps)
+
+        acqs = run_campaign(cfg)
+        z = acqs[0].z
+        idx = int(np.argmin(np.abs(z - 0.4)))
+
+        trace = np.array([a.strain_field[idx] for a in acqs])
+        T_sweep = cfg["source"]["sweep_duration"]
+        t = np.arange(n_sweeps) * T_sweep
+        expected = amp * (1.0 - np.exp(-t / tau))
+        assert trace[0] == 0.0
+        np.testing.assert_allclose(trace, expected, atol=1e-12)
+        # the last sweep should be well past the transient
+        assert abs(trace[-1] - amp) < 1e-5
+
+    def test_under_sampled_tau_warns(self):
+        # T_sweep = 10 ms -> warn if tau < 20 ms
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "thermal", "amplitude": 1e-4, "tau": 5e-3}},
+        ], n_sweeps=2)
+        with pytest.warns(UserWarning, match="under-sampled"):
+            run_campaign(cfg)
+
+    def test_well_sampled_tau_does_not_warn(self):
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "thermal", "amplitude": 1e-4, "tau": 0.1}},
+        ], n_sweeps=2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            run_campaign(cfg)

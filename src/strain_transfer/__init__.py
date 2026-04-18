@@ -48,6 +48,10 @@ def evaluate_motion(motion: dict | None, t: float) -> float:
     if kind == "harmonic":
         return motion["amplitude"] * math.sin(
             2.0 * math.pi * motion["frequency"] * t + motion["phase"])
+    if kind == "thermal":
+        # first-order relaxation; t starts at 0 so this is 0 at the first sweep
+        # and asymptotes to amplitude as t grows past a few tau.
+        return motion["amplitude"] * (1.0 - math.exp(-t / motion["tau"]))
     raise ValueError(f"unknown motion kind: {kind!r}")
 
 

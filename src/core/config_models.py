@@ -132,12 +132,23 @@ class HarmonicMotion(_Strict):
     phase:     float     = 0.0                   # radians
 
 
+class ThermalRelaxation(_Strict):
+    """First-order exponential approach: eps(t) = A * (1 - exp(-t/tau)).
+
+    amplitude can be negative (cooling) -- the sign matters here, unlike
+    harmonic where phase absorbs it.
+    """
+    kind:      Literal["thermal"] = "thermal"
+    amplitude: float = Field(...)           # strain asymptote (signed)
+    tau:       Time  = Field(..., gt=0)     # relaxation time constant [s]
+
+
 class StrainSegment(_Strict):
     start:   Length
     end:     Length
     # static offset -- the motion adds on top of this
     epsilon: float = 0.0
-    motion:  HarmonicMotion | None = None
+    motion:  HarmonicMotion | ThermalRelaxation | None = None
 
     @model_validator(mode="after")
     def _check_order(self):
