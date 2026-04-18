@@ -1,10 +1,10 @@
 """Tests for dynamic (inter-sweep) strain perturbations, issue #41.
 
-Harmonic and thermal (first-order relaxation) motions are implemented.
-Propagating wave / impulsive / random vibration still pending. The
-sweep-rate sampling assumption is that strain is effectively constant
-during a single sweep (sweep_duration << 1/f_vib, or sweep_duration <<
-tau for thermal).
+Harmonic, thermal (first-order relaxation) and impulsive (gaussian-in-
+time) motions are implemented. Propagating wave / random vibration
+still pending. The sweep-rate sampling assumption is that strain is
+effectively constant during a single sweep (sweep_duration << 1/f_vib,
+or << tau for thermal, or << width for impulsive).
 """
 
 import warnings
@@ -300,6 +300,87 @@ class TestThermalRelaxation:
         cfg = _dyn_cfg([
             {"start": 0.3, "end": 0.5, "epsilon": 0.0,
              "motion": {"kind": "thermal", "amplitude": 1e-4, "tau": 0.1}},
+        ], n_sweeps=2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            run_campaign(cfg)
+
+
+class TestImpulsivePulse:
+    """Gaussian-in-time strain pulse: eps(t) = A*exp(-(t-t0)^2/(2*w^2))."""
+
+    def test_peak_at_center_time(self):
+        m = {"kind": "impulsive", "amplitude": 2e-4,
+             "center_time": 0.5, "width": 0.01}
+        assert abs(evaluate_motion(m, 0.5) - 2e-4) < 1e-15
+
+    def test_one_sigma_gives_exp_minus_half(self):
+        m = {"kind": "impulsive", "amplitude": 1e-4,
+             "center_time": 0.2, "width": 0.05}
+        expected = 1e-4 * np.exp(-0.5)
+        # one sigma on either side
+        assert abs(evaluate_motion(m, 0.25) - expected) < 1e-12
+        assert abs(evaluate_motion(m, 0.15) - expected) < 1e-12
+
+    def test_far_from_peak_is_negligible(self):
+        m = {"kind": "impulsive", "amplitude": 1.0,
+             "center_time": 1.0, "width": 0.01}
+        # 5 sigma out -> exp(-12.5) ~ 3.7e-6
+        val = evaluate_motion(m, 1.05)
+        assert abs(val) < 1e-5
+
+    def test_negative_amplitude_allowed(self):
+        m = {"kind": "impulsive", "amplitude": -1e-4,
+             "center_time": 0.1, "width": 0.02}
+        assert evaluate_motion(m, 0.1) < 0
+
+    def test_realize_adds_on_top_of_static(self):
+        segs = [{"start": 0.0, "end": 1.0, "epsilon": 5e-5,
+                 "motion": {"kind": "impulsive", "amplitude": 1e-4,
+                             "center_time": 0.2, "width": 0.05}}]
+        out = realize_segments(segs, 0.2)   # at the peak
+        expected = 5e-5 + 1e-4
+        assert abs(out[0]["epsilon"] - expected) < 1e-12
+
+    def test_strain_trace_matches_gaussian(self):
+        """Campaign traces out the gaussian pulse across sweeps."""
+        amp = 1e-4
+        t0 = 0.08      # 8 sweeps in
+        width = 0.03   # 3 x T_sweep
+        n_sweeps = 20
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "impulsive", "amplitude": amp,
+                         "center_time": t0, "width": width}},
+        ], n_sweeps=n_sweeps)
+
+        acqs = run_campaign(cfg)
+        z = acqs[0].z
+        idx = int(np.argmin(np.abs(z - 0.4)))
+
+        trace = np.array([a.strain_field[idx] for a in acqs])
+        T_sweep = cfg["source"]["sweep_duration"]
+        t = np.arange(n_sweeps) * T_sweep
+        expected = amp * np.exp(-0.5 * ((t - t0) / width) ** 2)
+        np.testing.assert_allclose(trace, expected, atol=1e-12)
+        # the peak sweep should reach close to the amplitude
+        assert trace.max() > 0.9 * amp
+
+    def test_under_sampled_width_warns(self):
+        # T_sweep = 10 ms -> warn if width < 20 ms
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "impulsive", "amplitude": 1e-4,
+                         "center_time": 0.05, "width": 5e-3}},
+        ], n_sweeps=2)
+        with pytest.warns(UserWarning, match="under-sampled"):
+            run_campaign(cfg)
+
+    def test_well_sampled_width_does_not_warn(self):
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "impulsive", "amplitude": 1e-4,
+                         "center_time": 0.05, "width": 0.05}},
         ], n_sweeps=2)
         with warnings.catch_warnings():
             warnings.simplefilter("error")

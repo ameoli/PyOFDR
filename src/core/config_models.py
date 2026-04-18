@@ -143,12 +143,28 @@ class ThermalRelaxation(_Strict):
     tau:       Time  = Field(..., gt=0)     # relaxation time constant [s]
 
 
+class ImpulsivePulse(_Strict):
+    """Gaussian-in-time strain pulse -- impact / crack / PZT click.
+
+    eps(t) = A * exp(-(t - center_time)^2 / (2 * width^2))
+
+    width is the std dev (not FWHM). gaussian is not zero-mean so the
+    fibre sees a residual 'tail' after the pulse; good enough for impulse-
+    like events. zero-mean variants (ricker, damped sine) would go as
+    separate motion kinds.
+    """
+    kind:        Literal["impulsive"] = "impulsive"
+    amplitude:   float = Field(...)             # peak strain (signed)
+    center_time: Time  = Field(..., ge=0)       # peak time, lab frame [s]
+    width:       Time  = Field(..., gt=0)       # gaussian std dev [s]
+
+
 class StrainSegment(_Strict):
     start:   Length
     end:     Length
     # static offset -- the motion adds on top of this
     epsilon: float = 0.0
-    motion:  HarmonicMotion | ThermalRelaxation | None = None
+    motion:  HarmonicMotion | ThermalRelaxation | ImpulsivePulse | None = None
 
     @model_validator(mode="after")
     def _check_order(self):

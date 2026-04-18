@@ -86,6 +86,15 @@ class StrainPerturbation(PipelineStep):
                             f"transient under-sampled across sweeps",
                             stacklevel=2,
                         )
+                elif kind == "impulsive":
+                    width = motion.get("width", 0.0)
+                    if 0 < width < 2.0 * self.sweep_duration:
+                        warnings.warn(
+                            f"strain segment {i}: impulsive width {width:g} s < "
+                            f"2*sweep_duration ({2*self.sweep_duration:g} s); "
+                            f"pulse peak under-sampled across sweeps",
+                            stacklevel=2,
+                        )
 
     def process(self, acq: Acquisition) -> Acquisition:
         if not self.segments:

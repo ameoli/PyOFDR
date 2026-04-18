@@ -52,6 +52,11 @@ def evaluate_motion(motion: dict | None, t: float) -> float:
         # first-order relaxation; t starts at 0 so this is 0 at the first sweep
         # and asymptotes to amplitude as t grows past a few tau.
         return motion["amplitude"] * (1.0 - math.exp(-t / motion["tau"]))
+    if kind == "impulsive":
+        # gaussian pulse; peak at center_time, std dev = width
+        dt = t - motion["center_time"]
+        w  = motion["width"]
+        return motion["amplitude"] * math.exp(-0.5 * (dt / w) ** 2)
     raise ValueError(f"unknown motion kind: {kind!r}")
 
 
