@@ -86,6 +86,71 @@ class TestCoherenceRolloff:
         assert acq.log[-1]["coherence_rolloff"] is True
 
 
+class TestPowerModulation:
+    """Source power variations (edge droop, RIN) must propagate to the beat."""
+
+    @staticmethod
+    def _reflector_cfg(**src_overrides):
+        # single strong reflector, rayleigh pushed way down, no coherence
+        # roll-off -> beat is a clean sinusoid whose analytic envelope tracks P(t).
+        return {**CFG,
+                "fiber":  {**CFG["fiber"], "length": 5.0,
+                           "reflectors": [{"z": 4.5, "R": 1e-4}],
+                           "rayleigh_coefficient_dB": -200.0},
+                "source": {**CFG["source"], "linewidth": 0.0,
+                           "rin_dB_per_Hz": None,
+                           "power_envelope_edge_dB": 0.0,
+                           **src_overrides}}
+
+    def _run(self, cfg):
+        acq = Acquisition()
+        acq = FiberGenerator(cfg).process(acq)
+        acq = SweptLaser(cfg).process(acq)
+        return MachZehnder(cfg).process(acq)
+
+    def test_envelope_droop_reaches_beat(self):
+        # 6 dB parabolic droop on source power must show up as 6 dB drop
+        # of the beat's analytic envelope at the sweep edges.
+        from scipy.signal import hilbert
+        edge_dB = 6.0
+        cfg = self._reflector_cfg(power_envelope_edge_dB=edge_dB)
+        acq = self._run(cfg)
+        beat = acq.photocurrent_main[0]
+        env = np.abs(hilbert(beat))
+        n = len(env)
+        # peak at center, edge samples at t=0 and t~T
+        env_center = env[n // 2]
+        env_edge   = 0.5 * (env[0] + env[-1])
+        drop_dB = 10.0 * np.log10(env_edge / env_center)
+        np.testing.assert_allclose(drop_dB, -edge_dB, atol=0.3)
+
+    def test_rin_increases_beat_variance(self):
+        # turning RIN on must increase var(beat) by ~sigma_rin^2 (relative).
+        # at -85 dB/Hz with BW=100 MHz, sigma_rin^2 ~ 0.316 -> ratio ~1.3
+        rin_dB = -85.0
+        clean = self._run(self._reflector_cfg())
+        noisy = self._run(self._reflector_cfg(rin_dB_per_Hz=rin_dB))
+        bw = CFG["adc"]["sample_rate"] / 2.0
+        expected_ratio = 1.0 + 10.0 ** (rin_dB / 10.0) * bw
+        ratio = np.var(noisy.photocurrent_main) / np.var(clean.photocurrent_main)
+        np.testing.assert_allclose(ratio, expected_ratio, rtol=0.1)
+
+    def test_flat_power_scales_linearly_with_P0(self):
+        # constant P: doubling the source power must double the beat.
+        # guards against a regression where a stale mean-power scalar
+        # would decouple the beat from the current P0.
+        cfg_1 = self._reflector_cfg()
+        cfg_2 = {**cfg_1, "source": {**cfg_1["source"],
+                                     "power": 2.0 * cfg_1["source"]["power"]}}
+        a1 = self._run(cfg_1)
+        a2 = self._run(cfg_2)
+        # compare where beat_1 is safely away from zero crossings
+        b1 = a1.photocurrent_main[0]
+        mask = np.abs(b1) > 0.5 * np.abs(b1).max()
+        ratio = a2.photocurrent_main[0][mask] / b1[mask]
+        np.testing.assert_allclose(ratio, 2.0, rtol=1e-10)
+
+
 class TestCirculator:
 
     def test_zero_loss_is_unity(self):

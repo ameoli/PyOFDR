@@ -96,12 +96,17 @@ class MachZehnder(PipelineStep):
         # circulator: signal passes through twice (to fiber and back)
         IL2 = self.circulator.round_trip_transmission
 
-        P_avg = float(xp.mean(xp.abs(acq.E_source) ** 2))
-        scale = 2.0 * math.sqrt(eta * (1.0 - eta)) * P_avg * IL2
+        # source power may vary sample-to-sample (edge droop, RIN). the beat
+        # amplitude is sqrt(P(t) * P(t-tau)) which for slow envelopes and short
+        # round-trip delays collapses to P(t). Using the mean here would throw
+        # away both the envelope and RIN before they reach the detector.
+        P_t = xp.abs(acq.E_source) ** 2
+        prefactor = 2.0 * math.sqrt(eta * (1.0 - eta)) * IL2
 
-        acq.photocurrent_main = scale * xp.real(beat)
+        acq.photocurrent_main = prefactor * P_t * xp.real(beat)
 
-        acq.add_log("optics", topology="mach_zehnder", scale=float(scale),
+        acq.add_log("optics", topology="mach_zehnder",
+                     scale=float(prefactor * xp.mean(P_t)),
                      circulator_IL_dB=self.circulator.insertion_loss_dB,
                      sweep_nonlinearity=self._has_nonlinearity,
                      coherence_rolloff=self.linewidth > 0)
