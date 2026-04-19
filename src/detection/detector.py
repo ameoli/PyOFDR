@@ -50,6 +50,7 @@ class Detector(PipelineStep):
         self.dark_current = det["dark_current"]                # A
         self.balanced = det["balanced"]
         self.saturation_current = det["saturation_current"]   # None or A
+        self.nl_coeffs = det["nonlinearity_coefficients"]      # [a2, a3, ...] or []
         self.seed = self.config["simulation"]["seed"]
 
         # balanced mode needs the DC current per arm for shot noise.
@@ -90,6 +91,31 @@ class Detector(PipelineStep):
         if self.saturation_current is not None:
             I_sat = self.saturation_current
             I = xp.clip(I, -I_sat, I_sat)
+
+        # small-signal photodiode nonlinearity. In balanced mode we
+        # reconstruct per-PD currents as I_dc +- I_beat, apply the polynomial
+        # to each (matched PDs), and subtract -- this keeps the DC*beat
+        # mixing that would otherwise be absent from a polynomial applied
+        # to the already-differenced signal. In single-ended mode we apply
+        # the polynomial to the combined current directly (note: the MZI
+        # output currently carries only the AC beat; the DC*beat mixing
+        # is therefore not modelled for single-ended -- see dev/notes).
+        if self.nl_coeffs:
+            if self.balanced:
+                I_A = self.dc_current + I
+                I_B = self.dc_current - I
+                I_A_nl = I_A
+                I_B_nl = I_B
+                for k, a in enumerate(self.nl_coeffs, start=2):
+                    if a != 0:
+                        I_A_nl = I_A_nl + a * I_A ** k
+                        I_B_nl = I_B_nl + a * I_B ** k
+                I = (I_A_nl - I_B_nl) / 2.0
+            else:
+                I_lin = I
+                for k, a in enumerate(self.nl_coeffs, start=2):
+                    if a != 0:
+                        I = I + a * I_lin ** k
 
         if self.balanced:
             # Balanced detection: two photodiodes see complementary MZI arms.
@@ -155,5 +181,6 @@ class Detector(PipelineStep):
                      thermal_nep=self.thermal_nep,
                      dark_current=self.dark_current,
                      balanced=self.balanced,
-                     saturation_current=self.saturation_current)
+                     saturation_current=self.saturation_current,
+                     nonlinearity_coefficients=tuple(self.nl_coeffs))
         return acq

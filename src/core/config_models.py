@@ -226,6 +226,9 @@ class DetectionConfig(_Strict):
     dark_current: Current   = Field(1.0e-9, ge=0)
     balanced:     bool      = False
     saturation_current: Current | None = None   # photodiode clamp [A]
+    # polynomial distortion applied pre-TIA: I_out = I_in + a2*I_in^2 + a3*I_in^3 + ...
+    # coefficients start at order 2 (linear term is implicit identity). Empty = ideal.
+    nonlinearity_coefficients: list[float] = Field(default_factory=list)
 
 
 class ADCConfig(_Strict):
