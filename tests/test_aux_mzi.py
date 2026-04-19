@@ -9,7 +9,9 @@ from core.campaign import run_campaign
 from source.swept_laser import SweptLaser
 from fiber.profile import FiberGenerator
 from optics.aux_mzi import AuxMZI
-from analysis.demodulation import fft_reflectogram, kclock_resample
+from analysis.demodulation import (
+    fft_reflectogram, kclock_resample, _strict_increasing_mask,
+)
 from analysis.spatial_metrics import measure_resolution
 
 
@@ -211,3 +213,59 @@ class TestKClockResampling:
 
         # peak should come back up (energy re-concentrates)
         assert peak_rs > peak_nl * 1.5
+
+
+class TestKClockMonotonicity:
+    """#64 -- kclock_resample was passing non-monotonic phi to np.interp."""
+
+    def test_mask_keeps_strictly_increasing_samples(self):
+        phi = np.array([0.0, 1.0, 0.9, 1.1, 1.2, 1.15, 1.3])
+        keep = _strict_increasing_mask(phi)
+        # drop 0.9 (< 1.0) and 1.15 (< 1.2); first sample always kept
+        expected = np.array([True, True, False, True, True, False, True])
+        np.testing.assert_array_equal(keep, expected)
+
+    def test_mask_noop_for_monotonic_phi(self):
+        phi = np.linspace(0.0, 10.0, 100)
+        assert _strict_increasing_mask(phi).all()
+
+    def test_mask_after_initial_overshoot(self):
+        # first sample is a big outlier: nothing ever exceeds it until the very
+        # end -> everything in between must be dropped.
+        phi = np.array([10.0, 5.0, 6.0, 7.0, 8.0, 11.0])
+        keep = _strict_increasing_mask(phi)
+        np.testing.assert_array_equal(keep, [True, False, False, False, False, True])
+
+    def test_raises_on_fully_broken_aux(self):
+        # random aux -> Hilbert unwrap is noise, way above the 1% threshold
+        rng = np.random.default_rng(0)
+        aux = rng.standard_normal(4096)
+        beat = np.zeros(4096)
+        with pytest.raises(ValueError, match="non-monotonic"):
+            kclock_resample(beat, aux)
+
+    def test_small_glitches_do_not_silently_distort(self):
+        # build a clean aux + beat pair via the real pipeline, then splice a
+        # handful of old samples into the middle of aux. After the fix the
+        # filtered path must stay close to the clean-aux output; before the
+        # fix np.interp would see a non-monotonic xp and distort the result.
+        cfg = _aux_cfg()
+        acq = run_campaign(cfg)[-1]
+        beat = acq.digital_main[0].astype(np.float64)
+        aux_clean = acq.aux_signal.astype(np.float64)
+        trim = acq.aux_valid_start
+
+        out_clean = kclock_resample(beat, aux_clean, trim_start=trim)
+
+        # splice ~0.2% of samples back in time -> local hilbert-phase back-step
+        aux_bad = aux_clean.copy()
+        n = len(aux_bad)
+        src = n // 3
+        dst = 2 * n // 3
+        k = max(10, n // 500)
+        aux_bad[dst : dst + k] = aux_clean[src : src + k]
+        out_bad = kclock_resample(beat, aux_bad, trim_start=trim)
+
+        # the bulk of the resampled beat should still agree with the clean case
+        corr = np.corrcoef(out_bad, out_clean)[0, 1]
+        assert corr > 0.99

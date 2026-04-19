@@ -224,6 +224,9 @@ def kclock_resample(beat, aux, trim_start=0, n_out=None):
     if phi[-1] < phi[0]:
         phi = -phi
 
+    if n_out is None:
+        n_out = len(beat)
+
     if not np.all(np.diff(phi) > 0):
         # allow a handful of tiny non-monotonic glitches near the edges (Hilbert
         # artefact) but bail out if the whole signal is broken.
@@ -233,12 +236,28 @@ def kclock_resample(beat, aux, trim_start=0, n_out=None):
                 f"aux phase is non-monotonic ({n_bad} samples); "
                 "sweep may have reversed or aux is too noisy"
             )
-
-    if n_out is None:
-        n_out = len(beat)
+        # drop the glitchy samples so np.interp sees a strictly increasing
+        # xp. without this the tolerate-branch would silently distort the
+        # resampling, since np.interp has no contract for non-monotonic xp.
+        keep = _strict_increasing_mask(phi)
+        phi  = phi[keep]
+        beat = beat[keep]
 
     phi_uniform = np.linspace(phi[0], phi[-1], n_out)
     return np.interp(phi_uniform, phi, beat)
+
+
+def _strict_increasing_mask(phi):
+    """Mask selecting the left-to-right strictly increasing subsequence of phi.
+
+    phi[0] is always kept. For i >= 1, phi[i] is kept iff it exceeds the running
+    maximum over phi[:i]. This is vectorised via np.maximum.accumulate.
+    """
+    running_max = np.maximum.accumulate(phi)
+    keep = np.empty(phi.shape, dtype=bool)
+    keep[0]  = True
+    keep[1:] = phi[1:] > running_max[:-1]
+    return keep
 
 
 # ── Conversions ──────────────────────────────────────────────────────
