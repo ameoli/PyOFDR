@@ -11,7 +11,9 @@ time-warp of the ideal linear beat signal. The warp is computed from
 the integrated frequency deviation, then applied via linear interpolation.
 
 TODO: add auxiliary MZI for k-linearization
-add differential phase noise at each delay
+non-Lorentzian coherence decay (flicker / random-walk phase noise)
+needs the full phase structure function; only the Lorentzian term
+is modelled here.
 """
 
 from __future__ import annotations
@@ -47,6 +49,8 @@ class MachZehnder(PipelineStep):
             self.nl_a2 != 0 or self.nl_a3 != 0
             or (self.ripple_amp > 0 and self.ripple_period > 0)
         )
+        self.linewidth = src["linewidth"]
+        self.n_core = self.config["fiber"]["n_core"]
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.fiber_profile is None:
@@ -63,6 +67,17 @@ class MachZehnder(PipelineStep):
         weighted = acq.fiber_profile
         if acq.attenuation_envelope is not None:
             weighted = weighted * acq.attenuation_envelope
+
+        # laser coherence roll-off: for a Lorentzian-linewidth laser each
+        # scatterer at round-trip delay tau = 2*n*z/c sees its beat amplitude
+        # decay as exp(-pi * linewidth * tau). The IFFT trick ignores this
+        # because it doesn't carry a delayed reference arm explicitly, so we
+        # fold it in as a z-dependent multiplier on the profile.
+        if self.linewidth > 0:
+            z = xp.arange(n_z) * acq.dz
+            tau = 2.0 * self.n_core * z / C
+            visibility = xp.exp(-math.pi * self.linewidth * tau)
+            weighted = weighted * visibility
 
         # zero-pad up to n_samples along the time axis
         n_pad = acq.n_samples - n_z
@@ -88,7 +103,8 @@ class MachZehnder(PipelineStep):
 
         acq.add_log("optics", topology="mach_zehnder", scale=float(scale),
                      circulator_IL_dB=self.circulator.insertion_loss_dB,
-                     sweep_nonlinearity=self._has_nonlinearity)
+                     sweep_nonlinearity=self._has_nonlinearity,
+                     coherence_rolloff=self.linewidth > 0)
         return acq
 
     def _apply_time_warp(self, beat, acq):
