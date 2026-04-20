@@ -11,6 +11,7 @@ from analysis.demodulation import (
     reflectogram_from_acq,
     phase_difference_strain,
     cross_spectrum_shift,
+    windowed_xcorr_strain,
     freq_shift_to_strain,
     freq_shift_to_temperature,
 )
@@ -155,6 +156,116 @@ class TestCrossSpectrumShift:
         df_rec = cross_spectrum_shift(H_meas, H_ref, dz, n=n, smooth_bins=10)
         # smoothing shouldn't affect a uniform shift
         np.testing.assert_allclose(df_rec[20:-20], df_true, rtol=1e-4)
+
+
+# ── Windowed sub-spectrum cross-correlation ─────────────────────────
+
+class TestWindowedXcorrStrain:
+
+    def test_synthetic_integer_shift(self):
+        """Rolling the local spectrum by an integer number of bins
+        must show up as the matching freq shift, and thus as a strain
+        derivable from Froggatt-Moore."""
+        rng = np.random.default_rng(40)
+        W = 256
+        dz = 20e-6
+        k_shift = 7        # roll(A, +k) == compressed fiber, so eps < 0
+
+        A = rng.standard_normal(W) + 1j * rng.standard_normal(W)
+        B = np.roll(A, k_shift)
+
+        # make reflectograms so that the algo's IFFT of the window recovers A/B
+        H_ref = np.fft.fft(A)
+        H_str = np.fft.fft(B)
+
+        sweep_hz = 5e12
+        nu0      = 193.4e12
+        p_e      = 0.22
+
+        z, eps = windowed_xcorr_strain(
+            H_str, H_ref, dz,
+            gauge_length=W * dz, stride=W * dz,
+            sweep_range_hz=sweep_hz, center_freq=nu0, p_e=p_e,
+        )
+
+        # expected: dnu = +k_shift * (sweep/W) (compressed -> higher freq)
+        # eps      = -dnu / (nu0 * (1 - p_e))
+        eps_true = -k_shift * (sweep_hz / W) / (nu0 * (1.0 - p_e))
+        assert len(eps) == 1
+        np.testing.assert_allclose(eps[0], eps_true, rtol=1e-10)
+
+    def test_zero_shift(self):
+        rng = np.random.default_rng(41)
+        W = 256
+        n = 4 * W
+        H = rng.standard_normal(n) + 1j * rng.standard_normal(n)
+        dz = 20e-6
+
+        _, eps = windowed_xcorr_strain(
+            H, H, dz,
+            gauge_length=W * dz, stride=W * dz,
+            sweep_range_hz=5e12, center_freq=193.4e12,
+        )
+        # same reflectogram -> no spectral shift
+        np.testing.assert_allclose(eps, 0.0, atol=1e-12)
+
+    def test_mismatched_lengths_raise(self):
+        with pytest.raises(ValueError, match="same length"):
+            windowed_xcorr_strain(np.ones(100), np.ones(200),
+                                   dz=20e-6, gauge_length=1e-3, stride=1e-3,
+                                   sweep_range_hz=5e12, center_freq=193e12)
+
+    def test_gauge_too_small_raises(self):
+        with pytest.raises(ValueError, match="gauge too small"):
+            windowed_xcorr_strain(np.ones(100), np.ones(100),
+                                   dz=20e-6, gauge_length=50e-6, stride=50e-6,
+                                   sweep_range_hz=5e12, center_freq=193e12)
+
+    def test_pipeline_strain_recovery(self):
+        """End-to-end: run the simulator with a known 1000 ustrain step
+        and check we recover it within a few percent on the inside bins."""
+        from core.campaign import run_campaign
+        from utils.constants import C
+        from utils.units import wavelength_range_to_freq_range
+
+        eps_true = 1e-3    # 1000 ustrain
+        cfg_ref = {**CFG, "simulation": {**CFG["simulation"], "n_sweeps": 1},
+                   "strain": {"segments": []}}
+        cfg_str = {**CFG, "simulation": {**CFG["simulation"], "n_sweeps": 1},
+                   "strain": {"segments": [{"start": 0.3, "end": 0.7,
+                                             "epsilon": eps_true}]}}
+        # kill noise so the test is deterministic
+        noise_off = {"detection": {**CFG["detection"],
+                                    "shot_noise": False, "thermal_nep": 0.0,
+                                    "dark_current": 0.0},
+                     "source": {**CFG["source"], "linewidth": 0.0}}
+        cfg_ref.update(noise_off)
+        cfg_str.update(noise_off)
+
+        acq_ref = run_campaign(cfg_ref)[-1]
+        acq_str = run_campaign(cfg_str)[-1]
+
+        H_ref, _ = fft_reflectogram(
+            acq_ref.digital_main[0].astype(np.float64), acq_ref.dz)
+        H_str, _ = fft_reflectogram(
+            acq_str.digital_main[0].astype(np.float64), acq_str.dz)
+
+        wl = cfg_ref["source"]["center_wavelength"]
+        sweep_hz = wavelength_range_to_freq_range(wl, cfg_ref["source"]["sweep_range"])
+        nu0      = C / wl
+
+        zc, eps_rec = windowed_xcorr_strain(
+            H_str, H_ref, acq_ref.dz,
+            gauge_length=0.01, stride=2e-3,
+            sweep_range_hz=sweep_hz, center_freq=nu0, p_e=0.22,
+        )
+        inside  = (zc > 0.38) & (zc < 0.62)
+        outside = (zc > 0.05) & (zc < 0.25)
+        assert inside.sum()  > 0
+        assert outside.sum() > 0
+
+        np.testing.assert_allclose(np.median(eps_rec[inside]),  eps_true, rtol=0.05)
+        np.testing.assert_allclose(np.median(eps_rec[outside]), 0.0,       atol=1e-5)
 
 
 # ── Conversion helpers ───────────────────────────────────────────────

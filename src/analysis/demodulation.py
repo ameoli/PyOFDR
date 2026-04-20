@@ -173,6 +173,101 @@ def cross_spectrum_shift(H_meas, H_ref, dz, n=1.4682, smooth_bins=0):
     return freq_shift
 
 
+# ── 4. Windowed sub-spectrum cross-correlation ──────────────────────
+
+def windowed_xcorr_strain(H_meas, H_ref, dz, gauge_length, stride,
+                          sweep_range_hz, center_freq, p_e=0.22):
+    """Distributed strain via local sub-spectrum cross-correlation.
+
+    For each sliding window of `gauge_length`, takes the IFFT of the
+    spatial reflectogram window to get the local optical spectrum and
+    cross-correlates the strained vs reference version. The peak shift
+    in optical frequency converts to strain via Froggatt-Moore:
+    `eps = -dnu / (nu_0 (1 - p_e))`.
+
+    Handles arbitrarily large strains (unlike phase_difference_strain,
+    which needs `gauge * d_phi/d_z << 1`). Typical gauge 0.5-5 cm.
+
+    Parameters
+    ----------
+    H_meas, H_ref : 1-D complex arrays
+        Complex reflectograms (same length).
+    dz : float
+        Spatial bin [m].
+    gauge_length : float
+        Sliding window size in z [m]. Sets both spatial resolution and
+        sub-spectrum bin width (dnu_bin = sweep_range_hz / W).
+    stride : float
+        Step between consecutive window centers [m]. Overlap when
+        stride < gauge_length.
+    sweep_range_hz : float
+        Optical frequency span of the sweep [Hz].
+    center_freq : float
+        Laser center optical frequency [Hz].
+    p_e : float
+        Photoelastic coefficient.
+
+    Returns
+    -------
+    z_centers : 1-D float array
+        Window center positions [m].
+    eps : 1-D float array
+        Recovered local strain, same length as z_centers.
+    """
+    H_meas = np.asarray(H_meas, dtype=np.complex128)
+    H_ref  = np.asarray(H_ref,  dtype=np.complex128)
+    if H_meas.shape != H_ref.shape:
+        raise ValueError("reflectograms must have the same length")
+
+    n_bins = len(H_ref)
+    W = int(round(gauge_length / dz))
+    if W < 8:
+        raise ValueError(f"gauge too small: W = {W} bins (need >= 8)")
+    if W > n_bins:
+        raise ValueError(f"gauge ({W} bins) larger than reflectogram ({n_bins})")
+    W -= W % 2           # force even so W//2 is clean
+    S = max(1, int(round(stride / dz)))
+
+    dnu_bin = sweep_range_hz / W
+
+    z_centers = []
+    eps_out = []
+
+    for k0 in range(W // 2, n_bins - W // 2 + 1, S):
+        a = H_ref[k0 - W // 2 : k0 + W // 2]
+        b = H_meas[k0 - W // 2 : k0 + W // 2]
+
+        # local spectra in optical-frequency domain
+        A = np.fft.ifft(a)
+        B = np.fft.ifft(b)
+
+        # circular cross-correlation via FFT. Peak lag = shift of B vs A.
+        R = np.fft.fftshift(np.fft.ifft(
+            np.fft.fft(B) * np.conj(np.fft.fft(A))
+        ))
+        mag = np.abs(R)
+        k_peak = int(np.argmax(mag))
+
+        # parabolic sub-bin refinement around the peak
+        if 0 < k_peak < W - 1:
+            y_m = mag[k_peak - 1]
+            y_0 = mag[k_peak]
+            y_p = mag[k_peak + 1]
+            denom = (y_m - 2.0 * y_0 + y_p)
+            frac = 0.5 * (y_m - y_p) / denom if denom != 0.0 else 0.0
+        else:
+            frac = 0.0
+
+        lag = (k_peak - W // 2) + frac
+        dnu = lag * dnu_bin
+        eps = -dnu / (center_freq * (1.0 - p_e))
+
+        z_centers.append(k0 * dz)
+        eps_out.append(eps)
+
+    return np.array(z_centers), np.array(eps_out)
+
+
 # ── k-clock resampling (aux-MZI based sweep linearisation) ─────────
 
 def kclock_resample(beat, aux, trim_start=0, n_out=None):
