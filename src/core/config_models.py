@@ -71,6 +71,22 @@ class AttenuationSegment(_Strict):
         return self
 
 
+class IndexSegment(_Strict):
+    """Static delta_n perturbation on a fiber section. Small-signal: the
+    scatterer bin positions don't move, only their round-trip phase does.
+    See #68; full z-dependent n(z) (with OPL-based dz) is in #33.
+    """
+    start:   Length
+    end:     Length
+    delta_n: float    # deviation from n_core, signed
+
+    @model_validator(mode="after")
+    def _check_order(self):
+        if self.end <= self.start:
+            raise ValueError(f"index segment: end ({self.end}) must be > start ({self.start})")
+        return self
+
+
 class BendSegment(_Strict):
     start:  Length
     end:    Length
@@ -97,6 +113,7 @@ class FiberConfig(_Strict):
     attenuation_segments: list[AttenuationSegment] = Field(default_factory=list)
     bends: list[BendSegment] = Field(default_factory=list)
     reflectors: list[ReflectorEntry] = Field(default_factory=list)
+    index_segments: list[IndexSegment] = Field(default_factory=list)
 
 
 class SourceConfig(_Strict):

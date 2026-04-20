@@ -33,7 +33,9 @@ class FiberGenerator(PipelineStep):
         self.attenuation_segments = fiber.get("attenuation_segments", [])
         self.bends = fiber.get("bends", [])
         self.reflectors = fiber.get("reflectors", [])
+        self.index_segments = fiber.get("index_segments", [])
         self.seed = self.config["simulation"]["seed"]
+        self.center_wl = source["center_wavelength"]
 
         # we need the sweep range to compute dz
         self.sweep_range_hz = wavelength_range_to_freq_range(
@@ -90,6 +92,19 @@ class FiberGenerator(PipelineStep):
         # discrete reflectors (connectors, splices, etc)
         if self.reflectors:
             inject_reflectors(profile, z, dz, self.reflectors, xp=xp)
+
+        # small-signal n(z) perturbation -- each scatterer at z picks up
+        # a round-trip phase from the integrated delta_n up to z. Valid
+        # when |delta_n/n_core| is small enough that the dz grid doesn't
+        # need to move (see #68, full treatment in #33).
+        if self.index_segments:
+            delta_n = xp.zeros(n_z)
+            for seg in self.index_segments:
+                mask = (z >= seg["start"]) & (z < seg["end"])
+                delta_n = xp.where(mask, delta_n + seg["delta_n"], delta_n)
+            k0 = 2.0 * math.pi / self.center_wl
+            phi_n = 2.0 * k0 * xp.cumsum(delta_n) * dz
+            profile = profile * xp.exp(1j * phi_n)
 
         # round-trip attenuation envelope. With per-segment overrides
         # or bends we build an alpha(z) vector and integrate cumulatively.

@@ -262,6 +262,70 @@ class TestVaryingAttenuation:
                                     b.attenuation_envelope, rtol=1e-4)
 
 
+class TestIndexPerturbation:
+    """Small-signal delta_n(z) adds a round-trip phase to the scatterers
+    without touching their amplitude or bin position. See #68 (full
+    z-dependent n(z) with OPL-based dz is #33)."""
+
+    def test_empty_unchanged(self):
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "index_segments": []}}
+        a = FiberGenerator(CFG).process(Acquisition())
+        b = FiberGenerator(cfg).process(Acquisition())
+        np.testing.assert_array_equal(a.fiber_profile, b.fiber_profile)
+
+    def test_amplitude_unchanged(self):
+        segs = [{"start": 0.3, "end": 0.7, "delta_n": 1e-4}]
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "index_segments": segs}}
+        a = FiberGenerator(CFG).process(Acquisition())
+        b = FiberGenerator(cfg).process(Acquisition())
+        np.testing.assert_allclose(np.abs(a.fiber_profile),
+                                    np.abs(b.fiber_profile), rtol=1e-12)
+
+    def test_phase_matches_cumulative_formula(self):
+        # phase accumulates linearly through the segment and plateaus after
+        dn = 1e-4
+        segs = [{"start": 0.3, "end": 0.7, "delta_n": dn}]
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "index_segments": segs}}
+        a = FiberGenerator(CFG).process(Acquisition())
+        b = FiberGenerator(cfg).process(Acquisition())
+
+        # same seed so speckle cancels in the ratio
+        ratio = b.fiber_profile[0] / a.fiber_profile[0]
+        np.testing.assert_allclose(np.abs(ratio), 1.0, rtol=1e-10)
+
+        phi_meas = np.unwrap(np.angle(ratio))
+        z, dz = b.z, b.dz
+        delta_n_arr = np.where((z >= 0.3) & (z < 0.7), dn, 0.0)
+        k0 = 2.0 * np.pi / CFG["source"]["center_wavelength"]
+        phi_exp = 2.0 * k0 * np.cumsum(delta_n_arr) * dz
+        np.testing.assert_allclose(phi_meas, phi_exp, atol=1e-9)
+
+    def test_plateau_after_segment(self):
+        segs = [{"start": 0.3, "end": 0.7, "delta_n": 2e-4}]
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "index_segments": segs}}
+        a = FiberGenerator(CFG).process(Acquisition())
+        b = FiberGenerator(cfg).process(Acquisition())
+        ratio = b.fiber_profile[0] / a.fiber_profile[0]
+        phi = np.unwrap(np.angle(ratio))
+        z = b.z
+        # phase must be flat for z > end of segment
+        tail = phi[z > 0.75]
+        np.testing.assert_allclose(tail - tail[0], 0.0, atol=1e-9)
+
+    def test_sign_flip(self):
+        # +delta_n and -delta_n should give opposite phases
+        sp = [{"start": 0.3, "end": 0.6, "delta_n": +1e-4}]
+        sm = [{"start": 0.3, "end": 0.6, "delta_n": -1e-4}]
+        cfg_p = {**CFG, "fiber": {**CFG["fiber"], "index_segments": sp}}
+        cfg_m = {**CFG, "fiber": {**CFG["fiber"], "index_segments": sm}}
+        bp = FiberGenerator(cfg_p).process(Acquisition())
+        bm = FiberGenerator(cfg_m).process(Acquisition())
+        a  = FiberGenerator(CFG).process(Acquisition())
+        phi_p = np.unwrap(np.angle(bp.fiber_profile[0] / a.fiber_profile[0]))
+        phi_m = np.unwrap(np.angle(bm.fiber_profile[0] / a.fiber_profile[0]))
+        np.testing.assert_allclose(phi_p, -phi_m, atol=1e-9)
+
+
 class TestRayleighStatistics:
     """Raw fiber_profile is a circular complex gaussian field, so |E|
     must follow a Rayleigh distribution with scale sigma/sqrt(2)
