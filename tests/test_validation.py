@@ -120,3 +120,59 @@ class TestNoiseFloorMatchesBudget:
         measured = _injected_noise_std(cfg_on, cfg_off)
         assert measured == pytest.approx(b["sigma_dark"], rel=0.15), \
             f"dark {measured:.3e} A vs budget {b['sigma_dark']:.3e} A"
+
+
+class TestAttenuationSlope:
+    """Reflectogram |H(z)|^2 must decay at -2*alpha dB/km (round-trip on power).
+
+    Same baseline-subtraction trick as the noise tests: the pipeline has a
+    small intrinsic |H|^2 slope (FFT edge / windowing) even at alpha=0;
+    subtracting the alpha=0 baseline isolates the configured attenuation
+    and the linear fit becomes tight (sub-percent).
+    """
+
+    @staticmethod
+    def _reflectogram_dB(cfg):
+        acq  = run_campaign(cfg)[0]
+        beat = np.asarray(acq.analog_main[0], dtype=np.float64)
+        H    = np.fft.fft(beat)
+        nh   = len(H) // 2
+        z    = np.arange(nh) * acq.dz
+        return z, 10.0 * np.log10(np.abs(H[:nh]) ** 2 + 1e-30)
+
+    def _fit_slope(self, alpha_dB_km, W_smooth=1000):
+        cfg_off = _noiseless_cfg()
+        cfg_off["fiber"]["length"] = 5.0
+        cfg_off["fiber"]["attenuation_dB_per_km"] = 0.0
+        cfg_off["fiber"]["rayleigh_coefficient_dB"] = -82.0     # normal Rayleigh
+        cfg_on  = deepcopy(cfg_off)
+        cfg_on["fiber"]["attenuation_dB_per_km"] = alpha_dB_km
+
+        z, P_off = self._reflectogram_dB(cfg_off)
+        _, P_on  = self._reflectogram_dB(cfg_on)
+
+        # trim away the reflectogram edges (roll-off + boundary artefacts)
+        mask = (z > 0.3) & (z < 4.7)
+        dP   = (P_on - P_off)[mask]
+        zm   = z[mask]
+
+        # heavy boxcar smoothing to collapse speckle
+        smooth = np.convolve(dP, np.ones(W_smooth) / W_smooth, mode="valid")
+        z_fit  = zm[W_smooth // 2 : W_smooth // 2 + len(smooth)]
+
+        slope_dB_per_m, _ = np.polyfit(z_fit, smooth, 1)
+        return slope_dB_per_m
+
+    def test_slope_matches_2alpha(self):
+        # 100 dB/km one-way -> -200 dB/km on reflectogram power (round trip)
+        alpha    = 100.0
+        expected = -2.0 * alpha / 1000.0        # dB/m
+        measured = self._fit_slope(alpha)
+        assert measured == pytest.approx(expected, rel=0.01), \
+            f"measured {measured:.4f} dB/m vs expected {expected:.4f} dB/m"
+
+    def test_zero_attenuation_flat(self):
+        # if alpha=0 on both sides the slope difference is zero to
+        # numerical noise
+        slope = self._fit_slope(0.0)
+        assert abs(slope) < 1e-6
