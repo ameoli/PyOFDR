@@ -260,3 +260,42 @@ class TestVaryingAttenuation:
         # off by one bin -- allow 1e-6 tolerance
         np.testing.assert_allclose(a.attenuation_envelope,
                                     b.attenuation_envelope, rtol=1e-4)
+
+
+class TestRayleighStatistics:
+    """Raw fiber_profile is a circular complex gaussian field, so |E|
+    must follow a Rayleigh distribution with scale sigma/sqrt(2)
+    (sigma^2 = R_lin * dz) and the phase must be uniform on [-pi, pi).
+    See #65."""
+
+    @staticmethod
+    def _profile():
+        # 2 m -> ~100k samples, plenty for the fit / KS test
+        cfg = {**CFG, "simulation": {"seed": 123},
+               "fiber": {**CFG["fiber"], "length": 2.0,
+                         "attenuation_dB_per_km": 0.0}}
+        return FiberGenerator(cfg).process(Acquisition()), cfg
+
+    def test_amplitude_is_rayleigh(self):
+        from scipy.stats import rayleigh
+        acq, cfg = self._profile()
+        amp = np.abs(acq.fiber_profile[0])
+        R_lin    = 10 ** (cfg["fiber"]["rayleigh_coefficient_dB"] / 10.0)
+        scale_th = np.sqrt(R_lin * acq.dz / 2.0)
+        # MLE with loc pinned at 0 -- no origin shift in the PDF
+        _, scale_hat = rayleigh.fit(amp, floc=0.0)
+        np.testing.assert_allclose(scale_hat, scale_th, rtol=1e-2)
+
+    def test_mean_power_matches_coefficient(self):
+        acq, cfg = self._profile()
+        P     = np.abs(acq.fiber_profile[0]) ** 2
+        R_lin = 10 ** (cfg["fiber"]["rayleigh_coefficient_dB"] / 10.0)
+        # E[|E|^2] = sigma^2 = R_lin * dz
+        np.testing.assert_allclose(P.mean(), R_lin * acq.dz, rtol=1e-2)
+
+    def test_phase_is_uniform(self):
+        from scipy.stats import kstest
+        acq, _ = self._profile()
+        u = (np.angle(acq.fiber_profile[0]) + np.pi) / (2.0 * np.pi)
+        _, p = kstest(u, "uniform")
+        assert p > 0.01, f"KS rejects uniform phase (p={p:.3g})"
