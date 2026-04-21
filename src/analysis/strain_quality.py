@@ -61,7 +61,7 @@ def strain_sensitivity(noise_floor, gauge_length, dz):
 
 
 def allan_deviation(freq_shifts, dt_sweep):
-    """Overlapping Allan deviation of frequency shift across sweeps.
+    """Non-overlapping Allan deviation of frequency shift across sweeps.
 
     Useful for characterising measurement stability vs averaging
     time.  Needs at least 3 sweeps.
@@ -84,28 +84,10 @@ def allan_deviation(freq_shifts, dt_sweep):
     if n < 3:
         raise ValueError("allan_deviation needs at least 3 sweeps")
 
-    # overlapping Allan deviation
     max_m = n // 2
     taus = []
     adevs = []
 
-    for m in range(1, max_m + 1):
-        tau = m * dt_sweep
-        # overlapping differences
-        diffs = freq_shifts[2 * m:] - 2 * freq_shifts[m:-m] + freq_shifts[:-2 * m]
-        if len(diffs) == 0:
-            break
-        avar = np.mean(diffs ** 2) / (2.0 * m ** 2 * dt_sweep ** 2)
-        # allan dev is sqrt of allan variance, but we want freq stability
-        # so just sqrt(avar) * tau to get the standard form... actually
-        # standard Allan dev for freq data is simpler:
-        # sigma_y(tau) = sqrt( mean( (y_{n+1} - y_n)^2 ) / 2 )
-        # where y_n = average of m samples starting at n
-        pass
-
-    # simpler: standard non-overlapping Allan deviation
-    taus = []
-    adevs = []
     for m in range(1, max_m + 1):
         tau = m * dt_sweep
         # non-overlapping averages
