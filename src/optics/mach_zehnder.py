@@ -10,7 +10,6 @@ beat frequency wobbles in the same way. This is equivalent to a
 time-warp of the ideal linear beat signal. The warp is computed from
 the integrated frequency deviation, then applied via linear interpolation.
 
-TODO: add auxiliary MZI for k-linearization
 non-Lorentzian coherence decay (flicker / random-walk phase noise)
 needs the full phase structure function; only the Lorentzian term
 is modelled here.
