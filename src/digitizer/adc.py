@@ -56,24 +56,24 @@ class ADC(PipelineStep):
         # single sinusoid spanning the code range, DNL as a random
         # cumulative walk (each step ~ N(0, dnl_rms)). Final curve[k] is
         # the offset in LSB to subtract from code k.
-        self._nl_curve = None   # filled lazily on first use
+        self._nl_curve = None
         if self.dnl_rms_lsb > 0 or self.inl_peak_lsb > 0:
             self._nl_curve = self._build_nl_curve()
 
     def _build_nl_curve(self):
-        import numpy as _np
-        k = _np.arange(self.n_levels) - self.n_levels // 2
-        curve = _np.zeros(self.n_levels)
+        xp = self.bk.xp
+        k = xp.arange(self.n_levels) - self.n_levels // 2
+        curve = xp.zeros(self.n_levels)
         if self.inl_peak_lsb > 0:
-            curve += self.inl_peak_lsb * _np.sin(
-                2.0 * _np.pi * (k + self.n_levels // 2) / self.n_levels)
+            curve += self.inl_peak_lsb * xp.sin(
+                2.0 * math.pi * (k + self.n_levels // 2) / self.n_levels)
         if self.dnl_rms_lsb > 0:
             rng = self.bk.random_generator(
                 derive_seed(self.seed, component="adc", sub=2))
             # cumulative DNL, zero-mean-detrended so it doesn't add a
             # monotonic ramp (that would just be a gain error).
-            walk = _np.cumsum(rng.standard_normal(self.n_levels)) * self.dnl_rms_lsb
-            walk -= _np.linspace(0, walk[-1], self.n_levels)
+            walk = xp.cumsum(rng.standard_normal(self.n_levels)) * self.dnl_rms_lsb
+            walk -= xp.linspace(0, walk[-1], self.n_levels)
             curve += walk
         return curve
 
