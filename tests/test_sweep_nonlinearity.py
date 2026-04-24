@@ -1,5 +1,7 @@
 """Tests for sweep nonlinearity (issue #23, part 1: no k-clock yet)."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -144,3 +146,20 @@ class TestSweepNonlinearityOnBeat:
         """Existing configs without nonlinearity fields still work."""
         acq = run_campaign(CFG)[-1]
         assert acq.digital_main is not None
+
+
+class TestTimeWarpBounds:
+    """np.interp clamps past the grid, so extreme excursion extrapolates."""
+
+    def test_mild_nonlinearity_silent(self):
+        # excursion ~0.2% of sweep -> below the 5% warning threshold
+        cfg = _nl_cfg(a2=1e14)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            run_campaign(cfg)
+        assert not any("time-warp" in str(x.message) for x in w)
+
+    def test_extreme_nonlinearity_warns(self):
+        cfg = _nl_cfg(a2=5e18)
+        with pytest.warns(UserWarning, match="time-warp"):
+            run_campaign(cfg)
