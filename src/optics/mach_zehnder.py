@@ -18,6 +18,7 @@ is modelled here.
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any
 
 import numpy as np
@@ -143,8 +144,20 @@ class MachZehnder(PipelineStep):
         # warped time: where in the "ideal" timeline each real sample falls
         s = t + delta_nu / gamma
 
+        # np.interp just clamps past [t[0], t[-1]]; large nonlinearity pushes
+        # s outside and the edges end up zero-order-held. warn if that
+        # excursion is a meaningful slice of the sweep.
+        t_ideal = t
+        T = n * dt
+        excess = max(float(xp.max(s)) - float(t_ideal[-1]), -float(xp.min(s)))
+        if excess > 0.05 * T:
+            warnings.warn(
+                f"MZI time-warp excursion {100.0 * excess / T:.1f}% of "
+                f"sweep, beat will extrapolate at the edges",
+                stacklevel=2,
+            )
+
         # resample each core via linear interpolation
-        t_ideal = t   # the uniform grid the IFFT beat lives on
         n_c = beat.shape[0]
         warped = xp.empty_like(beat)
         for c in range(n_c):
