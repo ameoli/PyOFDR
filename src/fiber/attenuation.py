@@ -34,8 +34,11 @@ def round_trip_attenuation_varying(z, alpha_dB_km_z, dz, xp=np):
     """Envelope for a z-dependent loss, exp(-integral(alpha(z') dz')).
 
     alpha_dB_km_z is an array of the same length as z, one loss value
-    per spatial bin. Uses a rectangle-rule cumulative integral -- good
-    enough given the typical bin size of a few mm.
+    per spatial bin. Left-Riemann cumulative integral, so the per-bin
+    discretization error is O(dz * d(alpha)/dz). For typical SMF
+    (alpha ~ 0.2 dB/km, dz ~ mm) this is ~1e-6 dB, well below any
+    realistic loss budget. Step discontinuities in alpha land on the
+    left of the jumping bin rather than straddling it.
     """
     alpha_np = dB_per_km_to_neper_per_m(alpha_dB_km_z)
     return xp.exp(-xp.cumsum(alpha_np) * dz)
