@@ -9,6 +9,7 @@ from core.acquisition import Acquisition
 from core.pipeline import PipelineStep
 from fiber.attenuation import round_trip_attenuation, round_trip_attenuation_varying
 from fiber.bends import bend_loss_dB
+from fiber.crosstalk import apply_crosstalk
 from fiber.reflectors import apply_connector_losses, inject_reflectors
 from utils.constants import C
 from utils.seeding import derive_seed
@@ -34,6 +35,7 @@ class FiberGenerator(PipelineStep):
         self.bends = fiber.get("bends", [])
         self.reflectors = fiber.get("reflectors", [])
         self.index_segments = fiber.get("index_segments", [])
+        self.crosstalk = fiber.get("crosstalk", None)
         self.seed = self.config["simulation"]["seed"]
         self.center_wl = source["center_wavelength"]
 
@@ -105,6 +107,18 @@ class FiberGenerator(PipelineStep):
             k0 = 2.0 * math.pi / self.center_wl
             phi_n = 2.0 * k0 * xp.cumsum(delta_n) * dz
             profile = profile * xp.exp(1j * phi_n)
+
+        # MCF core-to-core crosstalk. Applied after all per-core phase
+        # modifications so whatever each core carries gets mixed.
+        if self.crosstalk is not None and self.n_cores > 1:
+            rng_xt = self.bk.random_generator(
+                derive_seed(self.seed, component="crosstalk"))
+            profile = apply_crosstalk(
+                profile, z,
+                self.crosstalk["xt_dB_per_km"],
+                self.crosstalk["topology"],
+                rng_xt, xp=xp,
+            )
 
         # round-trip attenuation envelope. With per-segment overrides
         # or bends we build an alpha(z) vector and integrate cumulatively.

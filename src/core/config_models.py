@@ -103,6 +103,14 @@ class BendSegment(_Strict):
         return self
 
 
+class CrosstalkConfig(_Strict):
+    """Core-to-core crosstalk for MCF. Phase-scrambled scalar model
+    (level A), see #47. Full coupled-mode equations tracked in #69.
+    """
+    xt_dB_per_km: float    # integrated per-pair XT after 1 km (negative)
+    topology: Literal["hex7", "linear"] = "hex7"
+
+
 class FiberConfig(_Strict):
     length: Length = Field(10.0, gt=0)
     n_core: float = Field(1.4682, gt=1.0)
@@ -114,6 +122,7 @@ class FiberConfig(_Strict):
     bends: list[BendSegment] = Field(default_factory=list)
     reflectors: list[ReflectorEntry] = Field(default_factory=list)
     index_segments: list[IndexSegment] = Field(default_factory=list)
+    crosstalk: CrosstalkConfig | None = None
 
 
 class SourceConfig(_Strict):

@@ -363,3 +363,66 @@ class TestRayleighStatistics:
         u = (np.angle(acq.fiber_profile[0]) + np.pi) / (2.0 * np.pi)
         _, p = kstest(u, "uniform")
         assert p > 0.01, f"KS rejects uniform phase (p={p:.3g})"
+
+
+class TestCrosstalk:
+    """MCF core-to-core crosstalk, level A (phase-scrambled scalar), #47."""
+
+    def _mcf(self, n_cores=7, crosstalk=None):
+        fiber = {**CFG["fiber"], "n_cores": n_cores}
+        if crosstalk is not None:
+            fiber["crosstalk"] = crosstalk
+        return {**CFG, "fiber": fiber}
+
+    def test_disabled_by_default(self):
+        # n_cores > 1 with no crosstalk block -> cores stay independent
+        cfg = self._mcf(n_cores=7)
+        acq = FiberGenerator(cfg).process(Acquisition())
+        assert acq.fiber_profile.shape[0] == 7
+        a, b = acq.fiber_profile[0], acq.fiber_profile[1]
+        corr = np.abs(np.mean(np.conj(a) * b))
+        ref = np.sqrt(np.mean(np.abs(a)**2) * np.mean(np.abs(b)**2))
+        assert corr / ref < 5e-2
+
+    def test_xt_boosts_centre_core_power(self):
+        # aggressive xt injects power from all 6 neighbours; pick +20 dB/km
+        # (nonphysical, just for visibility on the 1 m test fibre)
+        cfg_no = self._mcf(n_cores=7)
+        cfg_xt = self._mcf(n_cores=7, crosstalk={
+            "xt_dB_per_km": 20.0, "topology": "hex7",
+        })
+        p_no = FiberGenerator(cfg_no).process(Acquisition()).fiber_profile
+        p_xt = FiberGenerator(cfg_xt).process(Acquisition()).fiber_profile
+
+        pwr_no = float(np.mean(np.abs(p_no[0])**2))
+        pwr_xt = float(np.mean(np.abs(p_xt[0])**2))
+        assert pwr_xt > 1.1 * pwr_no
+
+    def test_no_op_for_single_core(self):
+        fiber = {**CFG["fiber"], "n_cores": 1,
+                 "crosstalk": {"xt_dB_per_km": -30.0, "topology": "linear"}}
+        cfg = {**CFG, "fiber": fiber}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        assert acq.fiber_profile.shape[0] == 1
+
+    def test_hex7_requires_7_cores(self):
+        cfg = self._mcf(n_cores=4, crosstalk={
+            "xt_dB_per_km": -30.0, "topology": "hex7",
+        })
+        with pytest.raises(ValueError, match="hex7"):
+            FiberGenerator(cfg).process(Acquisition())
+
+    def test_linear_topology_accepts_any_n(self):
+        cfg = self._mcf(n_cores=3, crosstalk={
+            "xt_dB_per_km": -20.0, "topology": "linear",
+        })
+        acq = FiberGenerator(cfg).process(Acquisition())
+        assert acq.fiber_profile.shape[0] == 3
+
+    def test_deterministic_with_same_seed(self):
+        cfg = self._mcf(n_cores=7, crosstalk={
+            "xt_dB_per_km": -15.0, "topology": "hex7",
+        })
+        p1 = FiberGenerator(cfg).process(Acquisition()).fiber_profile
+        p2 = FiberGenerator(cfg).process(Acquisition()).fiber_profile
+        np.testing.assert_array_equal(p1, p2)
