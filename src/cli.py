@@ -1,11 +1,10 @@
 """Command-line interface (issue #29).
 
-`info` and `validate` are wired up; `run` is next.
-
 Run as::
 
     PYTHONPATH=src python -m cli info     configs/ofdr_basic.yaml
     PYTHONPATH=src python -m cli validate configs/ofdr_basic.yaml
+    PYTHONPATH=src python -m cli run      configs/ofdr_basic.yaml
 
 Once the package layout is reshuffled for PyPI (#55) this will move
 under pyofdr.cli and become a proper console entry point.
@@ -29,6 +28,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_val = sub.add_parser("validate", help="load + validate a config, exit 0 if ok")
     p_val.add_argument("config", help="path to YAML config")
+
+    p_run = sub.add_parser("run", help="run a simulation from a config")
+    p_run.add_argument("config", help="path to YAML config")
 
     return p
 
@@ -57,6 +59,27 @@ def main(argv: list[str] | None = None) -> int:
             print(f"invalid config: {e}", file=sys.stderr)
             return 1
         print(f"{args.config}: OK")
+        return 0
+
+    if args.cmd == "run":
+        try:
+            cfg = load_config(args.config)
+        except FileNotFoundError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        except Exception as e:
+            print(f"invalid config: {e}", file=sys.stderr)
+            return 1
+        # campaign import is local: keeps `pyofdr info` / `validate` snappy
+        # by skipping the heavy pipeline imports
+        from core.campaign import run_campaign
+        import logging
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        try:
+            run_campaign(cfg)
+        except Exception as e:
+            print(f"run failed: {e}", file=sys.stderr)
+            return 1
         return 0
 
     # argparse should have rejected us before getting here

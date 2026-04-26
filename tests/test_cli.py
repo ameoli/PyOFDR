@@ -1,7 +1,9 @@
-"""Smoke tests for the CLI (#29). Only `info` for now."""
+"""Smoke tests for the CLI (#29)."""
 
 import pytest
+import yaml
 
+from helpers import CFG
 from cli import main
 
 
@@ -44,3 +46,33 @@ def test_validate_rejects_bad_config(tmp_path, capsys):
     code = main(["validate", str(bad)])
     assert code == 1
     assert "invalid config" in capsys.readouterr().err
+
+
+def _write_run_cfg(tmp_path, output_path=None):
+    """small CFG dumped to YAML, optionally with output.path set."""
+    cfg = {**CFG}
+    if output_path is not None:
+        cfg = {**cfg, "output": {"path": str(output_path)}}
+    p = tmp_path / "run.yaml"
+    p.write_text(yaml.safe_dump(cfg))
+    return p
+
+
+def test_run_writes_hdf5_when_output_set(tmp_path):
+    out = tmp_path / "out.h5"
+    cfg_path = _write_run_cfg(tmp_path, output_path=out)
+    code = main(["run", str(cfg_path)])
+    assert code == 0
+    assert out.exists()
+
+
+def test_run_no_output_path_still_succeeds(tmp_path):
+    # no output.path -> nothing written, but exit 0 is fine
+    cfg_path = _write_run_cfg(tmp_path)
+    code = main(["run", str(cfg_path)])
+    assert code == 0
+
+
+def test_run_missing_config_exits_2(capsys):
+    code = main(["run", "configs/does_not_exist.yaml"])
+    assert code == 2
