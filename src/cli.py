@@ -33,6 +33,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("config", help="path to YAML config")
     p_run.add_argument("-o", "--output", default=None,
                        help="HDF5 output path (overrides output.path in the config)")
+    p_run.add_argument("-q", "--quiet", action="store_true",
+                       help="suppress progress logs (only warnings/errors)")
 
     return p
 
@@ -78,7 +80,12 @@ def main(argv: list[str] | None = None) -> int:
         # by skipping the heavy pipeline imports
         from core.campaign import run_campaign
         import logging
-        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        level = logging.WARNING if args.quiet else logging.INFO
+        # basicConfig is a no-op once handlers exist (e.g. from a prior
+        # call), so set the root level explicitly. format only matters
+        # the first time around.
+        logging.basicConfig(level=level, format="%(message)s")
+        logging.getLogger().setLevel(level)
         try:
             run_campaign(cfg)
         except Exception as e:

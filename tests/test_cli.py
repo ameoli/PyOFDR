@@ -96,3 +96,19 @@ def test_run_output_flag_wins_over_config(tmp_path):
     assert code == 0
     assert out.exists()
     assert not in_cfg.exists()
+
+
+def test_run_quiet_sets_root_logger_to_warning(tmp_path):
+    import logging
+    cfg_path = _write_run_cfg(tmp_path)
+    code = main(["run", str(cfg_path), "-q"])
+    assert code == 0
+    assert logging.getLogger().level == logging.WARNING
+
+
+def test_run_default_logs_at_info(tmp_path):
+    import logging
+    cfg_path = _write_run_cfg(tmp_path)
+    code = main(["run", str(cfg_path)])
+    assert code == 0
+    assert logging.getLogger().level == logging.INFO
