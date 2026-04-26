@@ -76,3 +76,23 @@ def test_run_no_output_path_still_succeeds(tmp_path):
 def test_run_missing_config_exits_2(capsys):
     code = main(["run", "configs/does_not_exist.yaml"])
     assert code == 2
+
+
+def test_run_output_flag_overrides_config(tmp_path):
+    # config has no output.path, -o picks one
+    cfg_path = _write_run_cfg(tmp_path)
+    out = tmp_path / "via_flag.h5"
+    code = main(["run", str(cfg_path), "-o", str(out)])
+    assert code == 0
+    assert out.exists()
+
+
+def test_run_output_flag_wins_over_config(tmp_path):
+    # config sets a path, -o should win
+    in_cfg = tmp_path / "from_cfg.h5"
+    cfg_path = _write_run_cfg(tmp_path, output_path=in_cfg)
+    out = tmp_path / "from_flag.h5"
+    code = main(["run", str(cfg_path), "-o", str(out)])
+    assert code == 0
+    assert out.exists()
+    assert not in_cfg.exists()

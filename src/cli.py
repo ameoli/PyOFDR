@@ -31,6 +31,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_run = sub.add_parser("run", help="run a simulation from a config")
     p_run.add_argument("config", help="path to YAML config")
+    p_run.add_argument("-o", "--output", default=None,
+                       help="HDF5 output path (overrides output.path in the config)")
 
     return p
 
@@ -70,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             print(f"invalid config: {e}", file=sys.stderr)
             return 1
+        if args.output is not None:
+            cfg.setdefault("output", {})["path"] = args.output
         # campaign import is local: keeps `pyofdr info` / `validate` snappy
         # by skipping the heavy pipeline imports
         from core.campaign import run_campaign
