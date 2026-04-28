@@ -9,6 +9,7 @@ Layout:
     /fiber/z                spatial axis [m]
     /fiber/attenuation      round-trip attenuation envelope
     /fiber/strain_field     applied strain eps(z), if present
+    /fiber/temperature_field applied dT(z) [K], if present
     /sweeps/0000/digital_main   (n_cores, n_t) int16
     /sweeps/0000/analog_main    (n_cores, n_t) float32
     /sweeps/0000/aux_signal     (n_t,) float32, present iff aux MZI enabled
@@ -66,6 +67,9 @@ class HDF5Writer:
             grp.create_dataset("attenuation", data=np.asarray(acq.attenuation_envelope))
         if acq.strain_field is not None:
             grp.create_dataset("strain_field", data=np.asarray(acq.strain_field))
+        if acq.temperature_field is not None:
+            grp.create_dataset("temperature_field",
+                               data=np.asarray(acq.temperature_field))
 
     def write_sweep(self, acq: Acquisition, sweep_index: int) -> None:
         """Write one sweep's data."""

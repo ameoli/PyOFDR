@@ -26,6 +26,7 @@ class Acquisition:
     nu_inst: np.ndarray | None = None     # (n_t,), instanteneous frequency [Hz]
 
     strain_field: np.ndarray | None = None         # (n_z,), applied strain eps(z)
+    temperature_field: np.ndarray | None = None    # (n_z,), applied dT(z) [K]
 
     photocurrent_main: np.ndarray | None = None   # (n_cores, n_t), W
     analog_main: np.ndarray | None = None         # (n_cores, n_t), V

@@ -25,6 +25,7 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
     """
     from fiber.profile import FiberGenerator
     from fiber.strain import StrainPerturbation
+    from fiber.temperature import TemperaturePerturbation
     from source.swept_laser import SweptLaser
     from optics.mach_zehnder import MachZehnder
     from optics.aux_mzi import AuxMZI
@@ -46,6 +47,7 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
     steps = [
         FiberGenerator(cfg),
         StrainPerturbation(cfg),
+        TemperaturePerturbation(cfg),
         SweptLaser(cfg),
         MachZehnder(cfg),
         AuxMZI(cfg),     # no-op unless optics.aux_mzi.enabled

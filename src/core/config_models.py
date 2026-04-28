@@ -216,6 +216,32 @@ class StrainConfig(_Strict):
         return self
 
 
+class TemperatureSegment(_Strict):
+    """Piecewise-constant temperature change along the fiber. Motion (if
+    given) modulates dT(t) -- same registry as strain segments, just
+    interpreted as Kelvin instead of strain."""
+    start:   Length
+    end:     Length
+    delta_T: float = 0.0   # static offset [K], signed
+    motion:  HarmonicMotion | ThermalRelaxation | ImpulsivePulse | None = None
+
+    @model_validator(mode="after")
+    def _check_order(self):
+        if self.end <= self.start:
+            raise ValueError(f"temperature segment: end ({self.end}) must be > start ({self.start})")
+        return self
+
+
+class TemperatureConfig(_Strict):
+    """Distributed temperature perturbation. Defaults are silica @ 1550 nm.
+    Combined with StrainConfig this gives the Froggatt-Moore strain-T
+    cross-sensitivity (#75)."""
+    segments: list[TemperatureSegment] = Field(default_factory=list)
+    thermal_expansion: float = Field(5.5e-7, ge=0)   # alpha_L [1/K]
+    # xi = (1/n) dn/dT [1/K]; user with raw dn/dT specifies dn_dT/n_core
+    thermo_optic:      float = Field(6.5e-6, ge=0)
+
+
 class CirculatorConfig(_Strict):
     insertion_loss_dB: float = Field(0.7, ge=0)
     isolation_dB:      float = Field(50.0, ge=0)
@@ -279,14 +305,15 @@ class OutputConfig(_Strict):
 
 
 class RootConfig(_Strict):
-    simulation: SimulationConfig = Field(default_factory=SimulationConfig)
-    fiber:      FiberConfig      = Field(default_factory=FiberConfig)
-    source:     SourceConfig     = Field(default_factory=SourceConfig)
-    optics:     OpticsConfig     = Field(default_factory=OpticsConfig)
-    strain:     StrainConfig     = Field(default_factory=StrainConfig)
-    detection:  DetectionConfig  = Field(default_factory=DetectionConfig)
-    adc:        ADCConfig        = Field(default_factory=ADCConfig)
-    output:     OutputConfig     = Field(default_factory=OutputConfig)
+    simulation:  SimulationConfig  = Field(default_factory=SimulationConfig)
+    fiber:       FiberConfig       = Field(default_factory=FiberConfig)
+    source:      SourceConfig      = Field(default_factory=SourceConfig)
+    optics:      OpticsConfig      = Field(default_factory=OpticsConfig)
+    strain:      StrainConfig      = Field(default_factory=StrainConfig)
+    temperature: TemperatureConfig = Field(default_factory=TemperatureConfig)
+    detection:   DetectionConfig   = Field(default_factory=DetectionConfig)
+    adc:         ADCConfig         = Field(default_factory=ADCConfig)
+    output:      OutputConfig      = Field(default_factory=OutputConfig)
 
     @model_validator(mode="after")
     def _check_nyquist(self):
