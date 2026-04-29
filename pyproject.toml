@@ -33,8 +33,14 @@ dependencies = [
 Homepage = "https://github.com/ameoli/PyOFDR"
 Issues = "https://github.com/ameoli/PyOFDR/issues"
 
+[project.scripts]
+pyofdr = "pyofdr.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -23,11 +23,11 @@ from typing import Any
 
 import numpy as np
 
-from core.acquisition import Acquisition
-from core.pipeline import PipelineStep
-from optics.components import Circulator
-from utils.constants import C
-from utils.units import wavelength_range_to_freq_range
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.pipeline import PipelineStep
+from pyofdr.optics.components import Circulator
+from pyofdr.utils.constants import C
+from pyofdr.utils.units import wavelength_range_to_freq_range
 
 
 class MachZehnder(PipelineStep):

@@ -20,12 +20,12 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from core.acquisition import Acquisition
-from core.pipeline import PipelineStep
-from source.phase_noise import colored_frequency_noise
-from utils.constants import C
-from utils.seeding import derive_seed
-from utils.units import wavelength_range_to_freq_range
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.pipeline import PipelineStep
+from pyofdr.source.phase_noise import colored_frequency_noise
+from pyofdr.utils.constants import C
+from pyofdr.utils.seeding import derive_seed
+from pyofdr.utils.units import wavelength_range_to_freq_range
 
 
 class SweptLaser(PipelineStep):

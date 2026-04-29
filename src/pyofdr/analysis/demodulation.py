@@ -22,7 +22,7 @@ import math
 import numpy as np
 from scipy.signal import hilbert as _hilbert
 
-from utils.constants import C
+from pyofdr.utils.constants import C
 
 
 # ── 1. FFT reflectogram ─────────────────────────────────────────────

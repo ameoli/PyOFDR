@@ -3,7 +3,7 @@
 import numpy as np
 
 from helpers import CFG
-from core.campaign import run_campaign
+from pyofdr.core.campaign import run_campaign
 
 
 class TestEndToEnd:

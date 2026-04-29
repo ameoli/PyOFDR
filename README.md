@@ -19,21 +19,26 @@ Outputs digitized beat signal identical to what you'd get from a real instrument
 
 ## Install
 ```bash
-pip install -r requirements.txt   # or just: pip install numpy scipy pyyaml pydantic pint h5py
+pip install -e .              # editable install from a clone
+pip install -e .[dev]         # + pytest (for the test suite)
 ```
 
 ## Quick start
 ```python
-import sys
-sys.path.insert(0, "src")
-
-from core.config import load_config
-from core.campaign import run_campaign
+from pyofdr.core.config import load_config
+from pyofdr.core.campaign import run_campaign
 
 cfg = load_config("configs/ofdr_basic.yaml")
 acqs = run_campaign(cfg)        # one Acquisition per sweep
 acq  = acqs[-1]
 # acq.digital_main contains the digitized beat signal (int16, shape (n_cores, n))
+```
+
+The `pyofdr` CLI is also installed:
+```bash
+pyofdr info     configs/ofdr_basic.yaml
+pyofdr validate configs/ofdr_basic.yaml
+pyofdr run -o out.h5 configs/ofdr_basic.yaml
 ```
 
 ## Run tests
@@ -49,7 +54,7 @@ MIT
 
 ### Third-party code
 - [`felixpatzelt/colorednoise`](https://github.com/felixpatzelt/colorednoise) (MIT),
-  vendored as `src/utils/colorednoise.py` and used for the laser phase-noise
+  vendored as `src/pyofdr/utils/colorednoise.py` and used for the laser phase-noise
   PSD shaping. License in `LICENSES/colorednoise-MIT.txt`.
 
 ## Issues & Contributions

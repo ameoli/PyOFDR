@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from analysis.spectral import beat_psd, beat_spectrogram, psd_slope
+from pyofdr.analysis.spectral import beat_psd, beat_spectrogram, psd_slope
 
 
 class TestBeatPSD:

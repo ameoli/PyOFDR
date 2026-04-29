@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from fiber.profile import FiberGenerator
-from source.swept_laser import SweptLaser
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.source.swept_laser import SweptLaser
 
 
 class TestSweptLaser:

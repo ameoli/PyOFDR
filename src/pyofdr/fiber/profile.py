@@ -5,15 +5,15 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from core.acquisition import Acquisition
-from core.pipeline import PipelineStep
-from fiber.attenuation import round_trip_attenuation, round_trip_attenuation_varying
-from fiber.bends import bend_loss_dB
-from fiber.crosstalk import apply_crosstalk
-from fiber.reflectors import apply_connector_losses, inject_reflectors
-from utils.constants import C
-from utils.seeding import derive_seed
-from utils.units import dB_to_linear, wavelength_range_to_freq_range
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.pipeline import PipelineStep
+from pyofdr.fiber.attenuation import round_trip_attenuation, round_trip_attenuation_varying
+from pyofdr.fiber.bends import bend_loss_dB
+from pyofdr.fiber.crosstalk import apply_crosstalk
+from pyofdr.fiber.reflectors import apply_connector_losses, inject_reflectors
+from pyofdr.utils.constants import C
+from pyofdr.utils.seeding import derive_seed
+from pyofdr.utils.units import dB_to_linear, wavelength_range_to_freq_range
 
 
 class FiberGenerator(PipelineStep):

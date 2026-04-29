@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 from helpers import CFG
-from cli import main
+from pyofdr.cli import main
 
 
 def test_info_prints_summary(capsys):

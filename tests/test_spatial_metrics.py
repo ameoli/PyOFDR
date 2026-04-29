@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from analysis.spatial_metrics import (
+from pyofdr.analysis.spatial_metrics import (
     measure_resolution,
     measure_dynamic_range,
     snr_profile,

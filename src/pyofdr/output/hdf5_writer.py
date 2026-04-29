@@ -25,7 +25,7 @@ from typing import Any
 import h5py
 import numpy as np
 
-from core.acquisition import Acquisition
+from pyofdr.core.acquisition import Acquisition
 
 
 class HDF5Writer:

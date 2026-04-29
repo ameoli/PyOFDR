@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from fiber.attenuation import round_trip_attenuation, dB_per_km_to_neper_per_m
-from fiber.profile import FiberGenerator
-from fiber.reflectors import apply_connector_losses, inject_reflectors
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.fiber.attenuation import round_trip_attenuation, dB_per_km_to_neper_per_m
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.fiber.reflectors import apply_connector_losses, inject_reflectors
 
 
 class TestFiberGenerator:

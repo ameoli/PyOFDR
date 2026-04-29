@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from core.campaign import run_campaign
-from core.config_models import RootConfig
-from fiber.profile import FiberGenerator
-from fiber.strain import StrainPerturbation
-from fiber.temperature import TemperaturePerturbation
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.campaign import run_campaign
+from pyofdr.core.config_models import RootConfig
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.fiber.strain import StrainPerturbation
+from pyofdr.fiber.temperature import TemperaturePerturbation
 
 
 # silica defaults at 1550 nm -- mirror the values in TemperatureConfig

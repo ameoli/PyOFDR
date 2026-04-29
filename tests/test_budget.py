@@ -5,8 +5,8 @@ import math
 import pytest
 
 from helpers import CFG, REPO_ROOT
-from analysis.budget import compute_budget, print_budget
-from core.config import load_config
+from pyofdr.analysis.budget import compute_budget, print_budget
+from pyofdr.core.config import load_config
 
 
 class TestBudget:

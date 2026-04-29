@@ -13,10 +13,10 @@ import pytest
 from scipy.signal import welch
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from source.phase_noise import colored_frequency_noise
-from source.swept_laser import SweptLaser
-from utils.colorednoise import powerlaw_psd_gaussian
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.source.phase_noise import colored_frequency_noise
+from pyofdr.source.swept_laser import SweptLaser
+from pyofdr.utils.colorednoise import powerlaw_psd_gaussian
 
 
 def _slope(f, psd):

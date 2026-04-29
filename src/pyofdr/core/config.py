@@ -3,8 +3,8 @@ import math
 from pathlib import Path
 from typing import Any
 import yaml
-from core.config_models import RootConfig
-from utils.constants import C
+from pyofdr.core.config_models import RootConfig
+from pyofdr.utils.constants import C
 
 
 def load_config(path: str | Path) -> dict[str, Any]:

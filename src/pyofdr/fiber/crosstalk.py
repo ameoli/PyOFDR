@@ -19,7 +19,7 @@ import math
 
 import numpy as np
 
-from utils.units import dB_to_linear
+from pyofdr.utils.units import dB_to_linear
 
 
 def _neighbors_hex7() -> list[list[int]]:

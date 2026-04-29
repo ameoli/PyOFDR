@@ -22,9 +22,9 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from analysis.budget import compute_budget
-from core.campaign import run_campaign
-from core.config import compute_derived
+from pyofdr.analysis.budget import compute_budget
+from pyofdr.core.campaign import run_campaign
+from pyofdr.core.config import compute_derived
 
 
 def _noiseless_cfg():

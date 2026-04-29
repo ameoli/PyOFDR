@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from fiber.bends import bend_loss_dB
-from fiber.profile import FiberGenerator
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.fiber.bends import bend_loss_dB
+from pyofdr.fiber.profile import FiberGenerator
 
 
 class TestBendLossFormula:

@@ -23,10 +23,10 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from core.acquisition import Acquisition
-from core.pipeline import PipelineStep
-from strain_transfer import CoxShearLag, IdealTransfer, realize_segments
-from strain_transfer.motions import check_motion_sampling
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.pipeline import PipelineStep
+from pyofdr.strain_transfer import CoxShearLag, IdealTransfer, realize_segments
+from pyofdr.strain_transfer.motions import check_motion_sampling
 
 
 class StrainPerturbation(PipelineStep):

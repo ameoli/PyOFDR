@@ -2,12 +2,9 @@
 
 Run as::
 
-    PYTHONPATH=src python -m cli info     configs/ofdr_basic.yaml
-    PYTHONPATH=src python -m cli validate configs/ofdr_basic.yaml
-    PYTHONPATH=src python -m cli run      configs/ofdr_basic.yaml
-
-Once the package layout is reshuffled for PyPI (#55) this will move
-under pyofdr.cli and become a proper console entry point.
+    pyofdr info     configs/ofdr_basic.yaml
+    pyofdr validate configs/ofdr_basic.yaml
+    pyofdr run      configs/ofdr_basic.yaml
 """
 
 from __future__ import annotations
@@ -15,7 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from core.config import load_config, print_info
+from pyofdr.core.config import load_config, print_info
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -78,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
             cfg.setdefault("output", {})["path"] = args.output
         # campaign import is local: keeps `pyofdr info` / `validate` snappy
         # by skipping the heavy pipeline imports
-        from core.campaign import run_campaign
+        from pyofdr.core.campaign import run_campaign
         import logging
         level = logging.WARNING if args.quiet else logging.INFO
         # basicConfig is a no-op once handlers exist (e.g. from a prior

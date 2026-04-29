@@ -4,15 +4,15 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from core.campaign import run_campaign
-from core.config_models import RootConfig
-from fiber.profile import FiberGenerator
-from source.swept_laser import SweptLaser
-from optics.mach_zehnder import MachZehnder
-from detection.detector import Detector
-from detection.filter import AntiAliasFilter
-from digitizer.adc import ADC
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.campaign import run_campaign
+from pyofdr.core.config_models import RootConfig
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.source.swept_laser import SweptLaser
+from pyofdr.optics.mach_zehnder import MachZehnder
+from pyofdr.detection.detector import Detector
+from pyofdr.detection.filter import AntiAliasFilter
+from pyofdr.digitizer.adc import ADC
 
 
 class TestADC:
@@ -79,7 +79,7 @@ class TestADCJitter:
         np.testing.assert_array_equal(acq.digital_main, acq2.digital_main)
 
     def test_jitter_unit_string_accepted(self):
-        from core.config_models import RootConfig
+        from pyofdr.core.config_models import RootConfig
         cfg = RootConfig(adc={"jitter_rms": "50 ps"})
         assert cfg.adc.jitter_rms == pytest.approx(50e-12)
 

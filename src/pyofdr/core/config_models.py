@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from pint import UnitRegistry
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
-from utils.constants import C as _C
+from pyofdr.utils.constants import C as _C
 
 _ureg = UnitRegistry()
 

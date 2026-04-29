@@ -28,10 +28,10 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from core.acquisition import Acquisition
-from core.pipeline import PipelineStep
-from utils.constants import E_CHARGE
-from utils.seeding import derive_seed
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.pipeline import PipelineStep
+from pyofdr.utils.constants import E_CHARGE
+from pyofdr.utils.seeding import derive_seed
 
 
 class Detector(PipelineStep):

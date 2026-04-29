@@ -28,9 +28,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from core.acquisition import Acquisition
-from core.pipeline import PipelineStep
-from utils.seeding import derive_seed
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.pipeline import PipelineStep
+from pyofdr.utils.seeding import derive_seed
 
 
 class ADC(PipelineStep):

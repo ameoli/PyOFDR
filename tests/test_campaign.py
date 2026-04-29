@@ -4,13 +4,13 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from core.campaign import run_campaign
-from core.config import compute_derived
-from fiber.profile import FiberGenerator
-from source.swept_laser import SweptLaser
-from output.hdf5_writer import HDF5Writer
-from utils.seeding import derive_seed
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.campaign import run_campaign
+from pyofdr.core.config import compute_derived
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.source.swept_laser import SweptLaser
+from pyofdr.output.hdf5_writer import HDF5Writer
+from pyofdr.utils.seeding import derive_seed
 
 
 class TestMulticore:

@@ -35,7 +35,7 @@ from typing import Protocol
 
 import numpy as np
 
-from strain_transfer.motions import check_motion_sampling, evaluate_motion
+from pyofdr.strain_transfer.motions import check_motion_sampling, evaluate_motion
 
 
 class StrainTransfer(Protocol):

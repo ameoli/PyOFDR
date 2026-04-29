@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from core.acquisition import Acquisition
-from core.config import compute_derived
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.config import compute_derived
 logger = logging.getLogger(__name__)
 
 
@@ -23,16 +23,16 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
     list[Acquisition]
         One Acquisition per sweep.
     """
-    from fiber.profile import FiberGenerator
-    from fiber.strain import StrainPerturbation
-    from fiber.temperature import TemperaturePerturbation
-    from source.swept_laser import SweptLaser
-    from optics.mach_zehnder import MachZehnder
-    from optics.aux_mzi import AuxMZI
-    from detection.detector import Detector
-    from detection.filter import AntiAliasFilter
-    from digitizer.adc import ADC
-    from output.hdf5_writer import HDF5Writer
+    from pyofdr.fiber.profile import FiberGenerator
+    from pyofdr.fiber.strain import StrainPerturbation
+    from pyofdr.fiber.temperature import TemperaturePerturbation
+    from pyofdr.source.swept_laser import SweptLaser
+    from pyofdr.optics.mach_zehnder import MachZehnder
+    from pyofdr.optics.aux_mzi import AuxMZI
+    from pyofdr.detection.detector import Detector
+    from pyofdr.detection.filter import AntiAliasFilter
+    from pyofdr.digitizer.adc import ADC
+    from pyofdr.output.hdf5_writer import HDF5Writer
 
     derived = compute_derived(cfg)
     n_sweeps = cfg.get("simulation", {}).get("n_sweeps", 1)

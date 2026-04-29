@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.campaign import run_campaign
-from strain_transfer import evaluate_motion, realize_segments
+from pyofdr.core.campaign import run_campaign
+from pyofdr.strain_transfer import evaluate_motion, realize_segments
 
 
 def _dyn_cfg(segments, n_sweeps=1):
@@ -209,7 +209,7 @@ class TestCampaignWithHarmonicMotion:
     def test_reflectogram_shows_motion(self):
         """End-to-end: a strained segment under harmonic motion produces
         a phase response that changes between sweeps in the reflectogram."""
-        from analysis.demodulation import fft_reflectogram
+        from pyofdr.analysis.demodulation import fft_reflectogram
         cfg = _dyn_cfg([
             {"start": 0.3, "end": 0.5, "epsilon": 0.0,
              "motion": {"kind": "harmonic", "amplitude": 5e-4,

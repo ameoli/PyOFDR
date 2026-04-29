@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from analysis.strain_quality import (
+from pyofdr.analysis.strain_quality import (
     strain_noise_floor,
     strain_sensitivity,
     allan_deviation,

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.acquisition import Acquisition
-from core.pipeline import PipelineStep
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.pipeline import PipelineStep
 
 
 class AntiAliasFilter(PipelineStep):

@@ -4,13 +4,13 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from core.campaign import run_campaign
-from fiber.profile import FiberGenerator
-from source.swept_laser import SweptLaser
-from optics.mach_zehnder import MachZehnder
-from detection.detector import Detector
-from detection.filter import AntiAliasFilter
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.campaign import run_campaign
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.source.swept_laser import SweptLaser
+from pyofdr.optics.mach_zehnder import MachZehnder
+from pyofdr.detection.detector import Detector
+from pyofdr.detection.filter import AntiAliasFilter
 
 
 class TestDetector:

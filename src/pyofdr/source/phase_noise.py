@@ -21,7 +21,7 @@ import math
 
 import numpy as np
 
-from utils.colorednoise import powerlaw_psd_gaussian
+from pyofdr.utils.colorednoise import powerlaw_psd_gaussian
 
 
 def colored_frequency_noise(

@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from core.campaign import run_campaign
-from core.config_models import RootConfig
-from strain_transfer import CoxShearLag, IdealTransfer
-from fiber.profile import FiberGenerator
-from fiber.strain import StrainPerturbation
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.campaign import run_campaign
+from pyofdr.core.config_models import RootConfig
+from pyofdr.strain_transfer import CoxShearLag, IdealTransfer
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.fiber.strain import StrainPerturbation
 
 
 class TestStrainTransfer:

@@ -1,6 +1,6 @@
 """Small unit conversion helpers."""
 
-from utils.constants import C
+from pyofdr.utils.constants import C
 
 
 def dB_to_linear(dB):

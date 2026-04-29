@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from analysis.demodulation import (
+from pyofdr.analysis.demodulation import (
     fft_reflectogram,
     reflectogram_from_acq,
     phase_difference_strain,
@@ -224,9 +224,9 @@ class TestWindowedXcorrStrain:
     def test_pipeline_strain_recovery(self):
         """End-to-end: run the simulator with a known 1000 ustrain step
         and check we recover it within a few percent on the inside bins."""
-        from core.campaign import run_campaign
-        from utils.constants import C
-        from utils.units import wavelength_range_to_freq_range
+        from pyofdr.core.campaign import run_campaign
+        from pyofdr.utils.constants import C
+        from pyofdr.utils.units import wavelength_range_to_freq_range
 
         eps_true = 1e-3    # 1000 ustrain
         cfg_ref = {**CFG, "simulation": {**CFG["simulation"], "n_sweeps": 1},
@@ -304,7 +304,7 @@ class TestIntegration:
 
     def test_pipeline_strain_recovery(self):
         """Run 2 sweeps -- one unstrained, one strained -- and recover."""
-        from core.campaign import run_campaign
+        from pyofdr.core.campaign import run_campaign
 
         eps_true = 5e-5
         cfg_ref = {**CFG, "simulation": {**CFG["simulation"], "n_sweeps": 1},

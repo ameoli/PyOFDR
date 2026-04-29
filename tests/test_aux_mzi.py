@@ -4,15 +4,15 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from core.campaign import run_campaign
-from source.swept_laser import SweptLaser
-from fiber.profile import FiberGenerator
-from optics.aux_mzi import AuxMZI
-from analysis.demodulation import (
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.campaign import run_campaign
+from pyofdr.source.swept_laser import SweptLaser
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.optics.aux_mzi import AuxMZI
+from pyofdr.analysis.demodulation import (
     fft_reflectogram, kclock_resample, _strict_increasing_mask,
 )
-from analysis.spatial_metrics import measure_resolution
+from pyofdr.analysis.spatial_metrics import measure_resolution
 
 
 def _aux_cfg(delay=50e-9, enabled=True, a2=0.0, a3=0.0,
@@ -83,7 +83,7 @@ class TestAuxMZIStep:
 
         # expected beat frequency
         src = cfg["source"]
-        from utils.units import wavelength_range_to_freq_range
+        from pyofdr.utils.units import wavelength_range_to_freq_range
         gamma = wavelength_range_to_freq_range(
             src["center_wavelength"], src["sweep_range"]
         ) / src["sweep_duration"]

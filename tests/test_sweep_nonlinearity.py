@@ -6,12 +6,12 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from core.campaign import run_campaign
-from source.swept_laser import SweptLaser
-from fiber.profile import FiberGenerator
-from analysis.demodulation import fft_reflectogram
-from analysis.spatial_metrics import measure_resolution
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.campaign import run_campaign
+from pyofdr.source.swept_laser import SweptLaser
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.analysis.demodulation import fft_reflectogram
+from pyofdr.analysis.spatial_metrics import measure_resolution
 
 
 def _nl_cfg(a2=0.0, a3=0.0, ripple_amp=0.0, ripple_period=0.0, **extra):

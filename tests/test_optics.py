@@ -6,12 +6,12 @@ import numpy as np
 import pytest
 
 from helpers import CFG
-from core.acquisition import Acquisition
-from fiber.profile import FiberGenerator
-from source.swept_laser import SweptLaser
-from optics.mach_zehnder import MachZehnder
-from optics.components import Circulator
-from utils.constants import C
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.source.swept_laser import SweptLaser
+from pyofdr.optics.mach_zehnder import MachZehnder
+from pyofdr.optics.components import Circulator
+from pyofdr.utils.constants import C
 
 
 class TestMachZehnder:

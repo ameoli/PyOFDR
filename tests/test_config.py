@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from helpers import CFG, REPO_ROOT
-from core.config import load_config
-from core.config_models import RootConfig
+from pyofdr.core.config import load_config
+from pyofdr.core.config_models import RootConfig
 
 
 class TestConfigValidation:

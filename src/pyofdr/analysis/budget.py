@@ -21,10 +21,10 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from core.config import compute_derived
-from core.config_models import RootConfig
-from utils.constants import C, E_CHARGE
-from utils.units import dB_to_linear
+from pyofdr.core.config import compute_derived
+from pyofdr.core.config_models import RootConfig
+from pyofdr.utils.constants import C, E_CHARGE
+from pyofdr.utils.units import dB_to_linear
 
 
 # silica photoelastic coefficient

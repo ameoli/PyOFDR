@@ -1,9 +1,9 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
-from backends import get_backend
-from core.acquisition import Acquisition
-from core.config_models import RootConfig
+from pyofdr.backends import get_backend
+from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.config_models import RootConfig
 
 class PipelineStep(ABC):
 
