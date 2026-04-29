@@ -18,6 +18,8 @@ import math
 import warnings
 from typing import Callable
 
+import numpy as np
+
 # eval:  (motion_dict, t)                           -> float
 # check: (motion_dict, sweep_duration, seg_index)   -> str | None
 EvalFn  = Callable[[dict, float], float]
@@ -69,11 +71,27 @@ def _check_impulsive(motion: dict, sweep_duration: float, idx: int) -> str | Non
     return None
 
 
+def _eval_random(motion: dict, t: float) -> float:
+    # stateless: derive the rng from (seed, bit pattern of t). identical
+    # (seed, t) -> identical sample, so we don't need to carry a buffer
+    # around. SeedSequence handles the mixing properly.
+    t_bits = int(np.float64(t).view(np.int64))
+    ss = np.random.SeedSequence([int(motion["seed"]), t_bits])
+    rng = np.random.default_rng(ss)
+    return motion["amplitude"] * float(rng.standard_normal())
+
+
+def _check_random(motion: dict, sweep_duration: float, idx: int) -> str | None:
+    # white noise has no characteristic frequency, nothing to alias against
+    return None
+
+
 # kind -> (evaluator, sampling check). adding a row here registers a new kind.
 _MOTION_HANDLERS: dict[str, tuple[EvalFn, CheckFn]] = {
     "harmonic":  (_eval_harmonic,  _check_harmonic),
     "thermal":   (_eval_thermal,   _check_thermal),
     "impulsive": (_eval_impulsive, _check_impulsive),
+    "random":    (_eval_random,    _check_random),
 }
 
 

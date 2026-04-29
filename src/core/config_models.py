@@ -185,12 +185,25 @@ class ImpulsivePulse(_Strict):
     width:       Time  = Field(..., gt=0)       # gaussian std dev [s]
 
 
+class RandomVibration(_Strict):
+    """Broadband white-gaussian strain noise sampled per sweep.
+
+    eps(t) ~ N(0, amplitude^2). PSD is flat up to the sweep-rate
+    Nyquist. Stateless and reproducible: same (seed, t) -> same
+    sample, no buffer carried in the dict. Spectrally-shaped variants
+    (pink, brown, band-limited) are tracked separately in #77.
+    """
+    kind:      Literal["random"] = "random"
+    amplitude: float = Field(..., ge=0)         # RMS strain (sigma)
+    seed:      int   = Field(0, ge=0)           # for reproducibility
+
+
 class StrainSegment(_Strict):
     start:   Length
     end:     Length
     # static offset -- the motion adds on top of this
     epsilon: float = 0.0
-    motion:  HarmonicMotion | ThermalRelaxation | ImpulsivePulse | None = None
+    motion:  HarmonicMotion | ThermalRelaxation | ImpulsivePulse | RandomVibration | None = None
 
     @model_validator(mode="after")
     def _check_order(self):
@@ -223,7 +236,7 @@ class TemperatureSegment(_Strict):
     start:   Length
     end:     Length
     delta_T: float = 0.0   # static offset [K], signed
-    motion:  HarmonicMotion | ThermalRelaxation | ImpulsivePulse | None = None
+    motion:  HarmonicMotion | ThermalRelaxation | ImpulsivePulse | RandomVibration | None = None
 
     @model_validator(mode="after")
     def _check_order(self):

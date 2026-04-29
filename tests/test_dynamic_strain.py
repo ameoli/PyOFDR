@@ -385,3 +385,76 @@ class TestImpulsivePulse:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             run_campaign(cfg)
+
+
+class TestRandomVibration:
+    """Broadband white-gaussian random vibration motion (#61)."""
+
+    def test_zero_amplitude_returns_zero(self):
+        m = {"kind": "random", "amplitude": 0.0, "seed": 7}
+        assert evaluate_motion(m, 0.0) == 0.0
+        assert evaluate_motion(m, 1.234) == 0.0
+
+    def test_deterministic_same_seed_same_t(self):
+        m = {"kind": "random", "amplitude": 1e-4, "seed": 42}
+        a = evaluate_motion(m, 0.5)
+        b = evaluate_motion(m, 0.5)
+        assert a == b
+
+    def test_different_seeds_give_different_samples(self):
+        m1 = {"kind": "random", "amplitude": 1e-4, "seed": 1}
+        m2 = {"kind": "random", "amplitude": 1e-4, "seed": 2}
+        assert evaluate_motion(m1, 0.5) != evaluate_motion(m2, 0.5)
+
+    def test_different_t_gives_different_samples(self):
+        m = {"kind": "random", "amplitude": 1e-4, "seed": 42}
+        assert evaluate_motion(m, 0.5) != evaluate_motion(m, 0.6)
+
+    def test_rms_matches_amplitude(self):
+        # 5000 samples on a regular grid -> std should match amplitude
+        # within ~2% (sqrt(2/N) ~ 2% at N=5000)
+        amp = 1e-4
+        m = {"kind": "random", "amplitude": amp, "seed": 0}
+        ts = np.linspace(0.0, 5.0, 5000)
+        samples = np.array([evaluate_motion(m, t) for t in ts])
+        rms = float(np.std(samples))
+        assert abs(rms - amp) / amp < 0.05
+
+    def test_realize_adds_on_top_of_static(self):
+        segs = [{"start": 0.0, "end": 1.0, "epsilon": 1e-4,
+                 "motion": {"kind": "random", "amplitude": 5e-5, "seed": 3}}]
+        out = realize_segments(segs, 0.7)
+        # static + a sample drawn at t=0.7
+        sample = evaluate_motion(segs[0]["motion"], 0.7)
+        assert abs(out[0]["epsilon"] - (1e-4 + sample)) < 1e-15
+        assert out[0]["motion"] is None
+
+    def test_strain_trace_via_campaign(self):
+        """End-to-end: the campaign produces a non-constant strain trace.
+        Statistics are covered by test_rms_matches_amplitude (5000 samples
+        on evaluate_motion directly); here we just verify wiring."""
+        amp = 2e-4
+        n_sweeps = 20
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "random", "amplitude": amp, "seed": 11}},
+        ], n_sweeps=n_sweeps)
+
+        acqs = run_campaign(cfg)
+        z = acqs[0].z
+        idx = int(np.argmin(np.abs(z - 0.4)))
+        trace = np.array([a.strain_field[idx] for a in acqs])
+        # not all the same value -> motion is varying across sweeps
+        assert trace.std() > 0
+        # samples land within a few sigma of zero (sanity, not strict)
+        assert np.abs(trace).max() < 6 * amp
+
+    def test_no_under_sampling_warning(self):
+        # white noise spans up to Nyquist by definition; nothing to warn about
+        cfg = _dyn_cfg([
+            {"start": 0.3, "end": 0.5, "epsilon": 0.0,
+             "motion": {"kind": "random", "amplitude": 1e-4, "seed": 0}},
+        ], n_sweeps=2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            run_campaign(cfg)
