@@ -25,6 +25,7 @@ import numpy as np
 
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.pipeline import PipelineStep
+from pyofdr.fiber.fbg import weak_fbg_signal
 from pyofdr.optics.components import Circulator
 from pyofdr.utils.constants import C
 from pyofdr.utils.units import wavelength_range_to_freq_range
@@ -51,6 +52,7 @@ class MachZehnder(PipelineStep):
         )
         self.linewidth = src["linewidth"]
         self.n_core = self.config["fiber"]["n_core"]
+        self.fbg_arrays = self.config["fiber"].get("fbg_arrays", [])
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.fiber_profile is None:
@@ -93,6 +95,17 @@ class MachZehnder(PipelineStep):
         if self._has_nonlinearity:
             beat = self._apply_time_warp(beat, acq)
 
+        # weak FBG arrays. added after the time-warp so the sinc envelope
+        # uses the actual nu_inst; the phase term doesn't get warped, but
+        # the residual delta_nu/gamma error is small in practice.
+        if self.fbg_arrays:
+            fbg_real = weak_fbg_signal(
+                self.fbg_arrays, acq.dz, n_z,
+                acq.attenuation_envelope, acq.nu_inst,
+                self.n_core, xp=xp,
+            )
+            beat = beat + fbg_real[None, :]
+
         # circulator: signal passes through twice (to fiber and back)
         IL2 = self.circulator.round_trip_transmission
 
@@ -109,7 +122,8 @@ class MachZehnder(PipelineStep):
                      scale=float(prefactor * xp.mean(P_t)),
                      circulator_IL_dB=self.circulator.insertion_loss_dB,
                      sweep_nonlinearity=self._has_nonlinearity,
-                     coherence_rolloff=self.linewidth > 0)
+                     coherence_rolloff=self.linewidth > 0,
+                     n_fbgs=len(self.fbg_arrays))
         return acq
 
     def _apply_time_warp(self, beat, acq):

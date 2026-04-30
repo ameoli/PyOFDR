@@ -6,8 +6,10 @@ import pytest
 from helpers import CFG
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.fiber.attenuation import round_trip_attenuation, dB_per_km_to_neper_per_m
+from pyofdr.fiber.fbg import weak_fbg_signal
 from pyofdr.fiber.profile import FiberGenerator
 from pyofdr.fiber.reflectors import apply_connector_losses, inject_reflectors
+from pyofdr.utils.constants import C as _C
 
 
 class TestFiberGenerator:
@@ -176,6 +178,79 @@ class TestDiscreteReflectors:
         acq_bare = FiberGenerator(cfg_bare).process(Acquisition())
         np.testing.assert_array_equal(
             acq.attenuation_envelope, acq_bare.attenuation_envelope)
+
+
+class TestWeakFBG:
+    """Weak FBG arrays under Born approximation (#40)."""
+
+    def test_empty_returns_zeros(self):
+        nu = np.linspace(1.9e14, 1.95e14, 1000)
+        out = weak_fbg_signal([], dz=1e-3, n_z=1000,
+                              attenuation=None, nu_inst=nu, n_core=1.4682)
+        assert np.all(out == 0.0)
+
+    def test_on_bragg_peak_amplitude(self):
+        """At nu == nu_B the sinc envelope is exactly sqrt(R_max)."""
+        lam_B = 1550e-9
+        nu_B = _C / lam_B
+        # one sample on Bragg, others far enough to give negligible sinc
+        nu = np.array([nu_B, nu_B + 1e13])
+        fbg = [{"z": 0.0, "bragg_wavelength": lam_B,
+                "length": 5e-3, "peak_reflectivity": 0.25}]
+        out = weak_fbg_signal(fbg, dz=1e-3, n_z=10,
+                              attenuation=None, nu_inst=nu, n_core=1.4682)
+        # idx_z = 0 -> phase = 0 -> cos = 1, envelope = sqrt(0.25) = 0.5
+        np.testing.assert_allclose(out[0], 0.5, atol=1e-12)
+
+    def test_first_null_position(self):
+        """Reflectivity should be zero at nu = nu_B + C/(2 n L)."""
+        lam_B = 1550e-9
+        n_core = 1.4682
+        L_g = 5e-3
+        delta_nu_null = _C / (2.0 * n_core * L_g)
+        nu = np.array([_C / lam_B + delta_nu_null])
+        fbg = [{"z": 0.0, "bragg_wavelength": lam_B,
+                "length": L_g, "peak_reflectivity": 0.25}]
+        out = weak_fbg_signal(fbg, dz=1e-3, n_z=10,
+                              attenuation=None, nu_inst=nu, n_core=n_core)
+        np.testing.assert_allclose(out[0], 0.0, atol=1e-12)
+
+    def test_amplitude_scales_with_sqrt_R(self):
+        """4x peak reflectivity -> 2x signal amplitude."""
+        nu = np.linspace(_C / 1551e-9, _C / 1549e-9, 2000)
+        base = [{"z": 0.0, "bragg_wavelength": 1550e-9,
+                 "length": 5e-3, "peak_reflectivity": 0.01}]
+        big  = [{"z": 0.0, "bragg_wavelength": 1550e-9,
+                 "length": 5e-3, "peak_reflectivity": 0.04}]
+        out_b = weak_fbg_signal(base, 1e-3, 10, None, nu, 1.4682)
+        out_g = weak_fbg_signal(big,  1e-3, 10, None, nu, 1.4682)
+        np.testing.assert_allclose(out_g, 2.0 * out_b, atol=1e-12)
+
+    def test_far_offband_is_negligible(self):
+        """Bragg far outside the sweep range -> tiny signal."""
+        nu = np.linspace(_C / 1551e-9, _C / 1549e-9, 2000)
+        # nu_B ~ 200 nm away
+        fbg = [{"z": 0.0, "bragg_wavelength": 1750e-9,
+                "length": 5e-3, "peak_reflectivity": 0.5}]
+        out = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682)
+        assert np.max(np.abs(out)) < 1e-3
+
+    def test_outside_fiber_ignored(self):
+        nu = np.linspace(1.9e14, 1.95e14, 100)
+        fbg = [{"z": 999.0, "bragg_wavelength": 1550e-9,
+                "length": 5e-3, "peak_reflectivity": 0.1}]
+        out = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682)
+        assert np.all(out == 0.0)
+
+    def test_two_fbgs_accumulate(self):
+        """A list of two FBGs at the same z should give 2x the signal of one."""
+        nu = np.linspace(_C / 1551e-9, _C / 1549e-9, 4000)
+        fbg1 = [{"z": 0.0, "bragg_wavelength": 1550e-9,
+                  "length": 5e-3, "peak_reflectivity": 0.04}]
+        fbg2 = fbg1 + fbg1
+        out1 = weak_fbg_signal(fbg1, 1e-3, 10, None, nu, 1.4682)
+        out2 = weak_fbg_signal(fbg2, 1e-3, 10, None, nu, 1.4682)
+        np.testing.assert_allclose(out2, 2.0 * out1, atol=1e-12)
 
 
 class TestVaryingRayleigh:

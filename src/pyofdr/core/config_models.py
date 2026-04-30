@@ -47,6 +47,20 @@ class ReflectorEntry(_Strict):
     loss_dB: float = Field(0.0, ge=0)   # one-way insertion loss [dB]
 
 
+class FBGEntry(_Strict):
+    """Weak fiber Bragg grating, Born approximation (#40).
+
+    The amplitude reflectivity follows sqrt(R_max)*sinc(2 n L (nu-nu_B)/C),
+    so the first null sits at delta_nu = C/(2 n L). For strong gratings
+    (R_max close to 1) the Born approximation breaks down -- treat
+    peak_reflectivity below ~0.5 as the safe range.
+    """
+    z:                 Length
+    bragg_wavelength:  Length
+    length:            Length = Field(..., gt=0)   # grating physical length [m]
+    peak_reflectivity: float  = Field(..., ge=0, le=1)
+
+
 class RayleighSegment(_Strict):
     start: Length
     end:   Length
@@ -121,6 +135,7 @@ class FiberConfig(_Strict):
     attenuation_segments: list[AttenuationSegment] = Field(default_factory=list)
     bends: list[BendSegment] = Field(default_factory=list)
     reflectors: list[ReflectorEntry] = Field(default_factory=list)
+    fbg_arrays: list[FBGEntry] = Field(default_factory=list)
     index_segments: list[IndexSegment] = Field(default_factory=list)
     crosstalk: CrosstalkConfig | None = None
 

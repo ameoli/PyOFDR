@@ -34,6 +34,94 @@ class TestMachZehnder:
         assert acq.photocurrent_main.dtype == np.float64
 
 
+class TestFBGIntegration:
+    """End-to-end check that an FBG produces a peak in the OFDR trace (#40)."""
+
+    def test_on_bragg_energy_concentrated_at_z(self):
+        # The OFDR spatial response of an FBG of length L_g is a rect of
+        # width L_g (in z), so the FFT peak isn't a delta -- it's a plateau
+        # roughly L_g/dz bins wide centred at the FBG position. Check
+        # energy concentration rather than the argmax bin.
+        lam_B = CFG["source"]["center_wavelength"]
+        z_fbg = 0.5
+        L_g = 1e-2
+        cfg = {**CFG,
+               "fiber":  {**CFG["fiber"],
+                          "rayleigh_coefficient_dB": -200.0,
+                          "fbg_arrays": [{"z": z_fbg,
+                                           "bragg_wavelength": lam_B,
+                                           "length": L_g,
+                                           "peak_reflectivity": 0.04}]}}
+        acq = Acquisition()
+        acq = FiberGenerator(cfg).process(acq)
+        acq = SweptLaser(cfg).process(acq)
+        acq = MachZehnder(cfg).process(acq)
+
+        spectrum = np.abs(np.fft.rfft(acq.photocurrent_main[0]))
+
+        n_core = CFG["fiber"]["n_core"]
+        wl = CFG["source"]["center_wavelength"]
+        dwl = CFG["source"]["sweep_range"]
+        T = CFG["source"]["sweep_duration"]
+        gamma = (C / wl**2 * dwl) / T
+        f_beat = 2.0 * n_core * z_fbg * gamma / C
+        expected_bin = int(round(f_beat * acq.n_samples * acq.dt))
+        # half-width of the FBG plateau in bins
+        half_width = int(round(L_g / acq.dz / 2)) + 5
+
+        in_band = spectrum[expected_bin - half_width:expected_bin + half_width].sum()
+        total = spectrum.sum()
+        # most of the energy should sit inside the FBG plateau
+        assert in_band / total > 0.9
+
+    def test_no_fbg_no_peak(self):
+        """Sanity: dropping the FBG should remove the peak."""
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "rayleigh_coefficient_dB": -200.0}}
+        acq = Acquisition()
+        acq = FiberGenerator(cfg).process(acq)
+        acq = SweptLaser(cfg).process(acq)
+        acq = MachZehnder(cfg).process(acq)
+        spectrum = np.abs(np.fft.rfft(acq.photocurrent_main[0]))
+        # extremely low Rayleigh, no FBG -> spectrum should be tiny
+        assert spectrum.max() < 1e-6
+
+    def test_two_fbgs_two_peaks(self):
+        """Two FBGs at different z should give two peaks at the right bins."""
+        lam_B = CFG["source"]["center_wavelength"]
+        z1, z2 = 0.2, 0.8
+        L_g = 5e-3
+        cfg = {**CFG,
+               "fiber":  {**CFG["fiber"],
+                          "rayleigh_coefficient_dB": -200.0,
+                          "fbg_arrays": [
+                              {"z": z1, "bragg_wavelength": lam_B,
+                               "length": L_g, "peak_reflectivity": 0.04},
+                              {"z": z2, "bragg_wavelength": lam_B,
+                               "length": L_g, "peak_reflectivity": 0.04},
+                          ]}}
+        acq = Acquisition()
+        acq = FiberGenerator(cfg).process(acq)
+        acq = SweptLaser(cfg).process(acq)
+        acq = MachZehnder(cfg).process(acq)
+        spectrum = np.abs(np.fft.rfft(acq.photocurrent_main[0]))
+
+        n_core = CFG["fiber"]["n_core"]
+        wl = CFG["source"]["center_wavelength"]
+        dwl = CFG["source"]["sweep_range"]
+        T = CFG["source"]["sweep_duration"]
+        gamma = (C / wl**2 * dwl) / T
+        half_w = int(round(L_g / acq.dz / 2)) + 5
+
+        for z_fbg in (z1, z2):
+            f_beat = 2.0 * n_core * z_fbg * gamma / C
+            bin_z = int(round(f_beat * acq.n_samples * acq.dt))
+            in_band = spectrum[bin_z - half_w:bin_z + half_w].sum()
+            # local plateau should dominate the wider neighbourhood
+            wide = spectrum[bin_z - 4 * half_w:bin_z + 4 * half_w].sum()
+            assert in_band / wide > 0.5
+
+
 class TestCoherenceRolloff:
     """Lorentzian coherence roll-off with finite laser linewidth (#62)."""
 
