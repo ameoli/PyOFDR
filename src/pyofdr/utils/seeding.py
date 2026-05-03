@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 _OFFSETS = {
-    "fiber":     0,
-    "laser":     1000,
-    "detector":  2000,
-    "adc":       3000,
-    "crosstalk": 4000,
+    "fiber":               0,
+    "laser":               1000,
+    "detector":            2000,
+    "adc":                 3000,
+    "crosstalk":           4000,
+    "index_fluctuations":  5000,
 }
 
 _CORE_STRIDE = 1_000_000

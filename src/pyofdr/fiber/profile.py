@@ -35,6 +35,7 @@ class FiberGenerator(PipelineStep):
         self.bends = fiber.get("bends", [])
         self.reflectors = fiber.get("reflectors", [])
         self.index_segments = fiber.get("index_segments", [])
+        self.index_fluctuations = fiber.get("index_fluctuations", None)
         self.crosstalk = fiber.get("crosstalk", None)
         self.seed = self.config["simulation"]["seed"]
         self.center_wl = source["center_wavelength"]
@@ -96,14 +97,38 @@ class FiberGenerator(PipelineStep):
             inject_reflectors(profile, z, dz, self.reflectors, xp=xp)
 
         # small-signal n(z) perturbation -- each scatterer at z picks up
-        # a round-trip phase from the integrated delta_n up to z. Valid
-        # when |delta_n/n_core| is small enough that the dz grid doesn't
-        # need to move (see #68, full treatment in #33).
+        # a round-trip phase from the integrated delta_n up to z. Two
+        # contributions: deterministic segments (#68) plus stochastic OU
+        # fluctuations (partial #33). Valid when |delta_n/n_core| is
+        # small enough that the dz grid doesn't need to move (full OPL
+        # treatment is the rest of #33).
+        delta_n = None
         if self.index_segments:
             delta_n = xp.zeros(n_z)
             for seg in self.index_segments:
                 mask = (z >= seg["start"]) & (z < seg["end"])
                 delta_n = xp.where(mask, delta_n + seg["delta_n"], delta_n)
+
+        if (self.index_fluctuations is not None
+                and self.index_fluctuations["sigma"] > 0):
+            sigma  = self.index_fluctuations["sigma"]
+            L_corr = self.index_fluctuations["correlation_length"]
+            # AR(1) form of OU: dn[k] = a*dn[k-1] + sigma*sqrt(1-a^2)*eta[k],
+            # init from the stationary distribution -> dn[0] = sigma*eta[0].
+            a = math.exp(-dz / L_corr)
+            rng_n = self.bk.random_generator(
+                derive_seed(self.seed, component="index_fluctuations"))
+            eta = rng_n.standard_normal(n_z)
+            dn_rand = xp.empty(n_z)
+            dn_rand[0] = sigma * eta[0]
+            scale = sigma * math.sqrt(1.0 - a * a)
+            # python loop -- n_z up to ~1e5 in typical OFDR runs, ~50 ms.
+            # vectorized AR(1) via lfilter would need stationary-init zi math.
+            for k in range(1, n_z):
+                dn_rand[k] = a * dn_rand[k-1] + scale * eta[k]
+            delta_n = dn_rand if delta_n is None else delta_n + dn_rand
+
+        if delta_n is not None:
             k0 = 2.0 * math.pi / self.center_wl
             phi_n = 2.0 * k0 * xp.cumsum(delta_n) * dz
             profile = profile * xp.exp(1j * phi_n)

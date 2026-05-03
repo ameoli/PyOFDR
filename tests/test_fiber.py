@@ -401,6 +401,95 @@ class TestIndexPerturbation:
         np.testing.assert_allclose(phi_p, -phi_m, atol=1e-9)
 
 
+class TestIndexFluctuations:
+    """Stochastic OU n(z) fluctuations -- partial #33. Sits on top of the
+    same small-signal phase machinery as IndexPerturbation, so amplitude
+    is unchanged and the recovered delta_n stats should match an OU
+    process with stationary std=sigma and lag-1 autocorr=exp(-dz/L_corr).
+    """
+
+    @staticmethod
+    def _pair(sigma, L_corr, length=2.0, seed=42):
+        cfg_base = {**CFG, "simulation": {"seed": seed},
+                    "fiber": {**CFG["fiber"], "length": length,
+                              "attenuation_dB_per_km": 0.0}}
+        cfg_fl = {**cfg_base, "fiber": {**cfg_base["fiber"],
+                  "index_fluctuations": {
+                      "sigma": sigma, "correlation_length": L_corr}}}
+        a = FiberGenerator(cfg_base).process(Acquisition())
+        b = FiberGenerator(cfg_fl).process(Acquisition())
+        return a, b
+
+    def test_none_unchanged(self):
+        # absent block -> identical to baseline
+        a = FiberGenerator(CFG).process(Acquisition())
+        b = FiberGenerator({**CFG, "fiber": {**CFG["fiber"]}}).process(Acquisition())
+        np.testing.assert_array_equal(a.fiber_profile, b.fiber_profile)
+
+    def test_zero_sigma_is_noop(self):
+        # sigma=0 must not consume the rng stream. Identical baseline.
+        a, b = self._pair(0.0, 0.01)
+        np.testing.assert_array_equal(a.fiber_profile, b.fiber_profile)
+
+    def test_amplitude_unchanged(self):
+        # phase-only perturbation -> |E| identical
+        a, b = self._pair(1e-5, 0.01)
+        np.testing.assert_allclose(np.abs(a.fiber_profile),
+                                    np.abs(b.fiber_profile), rtol=1e-12)
+
+    def test_recovered_std_matches_sigma(self):
+        sigma = 1e-6
+        a, b = self._pair(sigma, 0.005)
+        ratio = b.fiber_profile[0] / a.fiber_profile[0]
+        phi = np.unwrap(np.angle(ratio))
+        k0  = 2.0 * np.pi / CFG["source"]["center_wavelength"]
+        # local delta_n recovered as the discrete derivative of phi/(2 k0 dz)
+        dn = np.diff(phi) / (2.0 * k0 * b.dz)
+        np.testing.assert_allclose(np.std(dn), sigma, rtol=5e-2)
+
+    def test_recovered_lag1_autocorr(self):
+        # OU stationary lag-1 autocorr = exp(-dz/L_corr)
+        sigma, L_corr = 1e-6, 0.005
+        a, b = self._pair(sigma, L_corr)
+        ratio = b.fiber_profile[0] / a.fiber_profile[0]
+        phi = np.unwrap(np.angle(ratio))
+        k0  = 2.0 * np.pi / CFG["source"]["center_wavelength"]
+        dn = np.diff(phi) / (2.0 * k0 * b.dz)
+        a_th  = np.exp(-b.dz / L_corr)
+        a_emp = np.mean(dn[:-1] * dn[1:]) / np.mean(dn**2)
+        np.testing.assert_allclose(a_emp, a_th, rtol=5e-2)
+
+    def test_deterministic_with_seed(self):
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "index_fluctuations": {"sigma": 1e-6,
+                                       "correlation_length": 0.01}}}
+        p1 = FiberGenerator(cfg).process(Acquisition()).fiber_profile
+        p2 = FiberGenerator(cfg).process(Acquisition()).fiber_profile
+        np.testing.assert_array_equal(p1, p2)
+
+    def test_combines_with_segments(self):
+        # deterministic segment + stochastic fluctuations should add up:
+        # angle(profile_combined / profile_baseline) ~= angle from segment
+        # plus a zero-mean stochastic phase.
+        seg = [{"start": 0.3, "end": 0.7, "delta_n": 1e-5}]
+        cfg_seg = {**CFG, "fiber": {**CFG["fiber"], "index_segments": seg}}
+        cfg_both = {**cfg_seg, "fiber": {**cfg_seg["fiber"],
+                    "index_fluctuations": {"sigma": 1e-7,
+                                            "correlation_length": 0.01}}}
+        a = FiberGenerator(CFG).process(Acquisition())
+        bs = FiberGenerator(cfg_seg).process(Acquisition())
+        bb = FiberGenerator(cfg_both).process(Acquisition())
+        # amplitude: all three identical
+        np.testing.assert_allclose(np.abs(a.fiber_profile),
+                                    np.abs(bb.fiber_profile), rtol=1e-12)
+        # phase plateau after the segment: combined ~= seg + small noise
+        phi_seg  = np.unwrap(np.angle(bs.fiber_profile[0] / a.fiber_profile[0]))
+        phi_both = np.unwrap(np.angle(bb.fiber_profile[0] / a.fiber_profile[0]))
+        # the difference is the OU phase, which has small std on this short fiber
+        diff = phi_both - phi_seg
+        assert np.std(diff) < 0.05 * np.max(np.abs(phi_seg))
+
+
 class TestRayleighStatistics:
     """Raw fiber_profile is a circular complex gaussian field, so |E|
     must follow a Rayleigh distribution with scale sigma/sqrt(2)

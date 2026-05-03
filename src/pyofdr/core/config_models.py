@@ -101,6 +101,19 @@ class IndexSegment(_Strict):
         return self
 
 
+class IndexFluctuations(_Strict):
+    """Stochastic small-signal n(z) fluctuations as an Ornstein-Uhlenbeck
+    process: stationary gaussian, std=sigma, exponential autocorrelation
+    with characteristic length correlation_length. Models manufacturing
+    irregularity, frozen-in stress variations, doping inhomogeneity.
+    Adds a round-trip phase like IndexSegment, no amplitude change. The
+    full OPL-based dz treatment of #33 is still TODO -- this is the
+    small-signal slice.
+    """
+    sigma:              float  = Field(0.0, ge=0)        # stationary std of delta_n
+    correlation_length: Length = Field(..., gt=0)        # OU corr length [m]
+
+
 class BendSegment(_Strict):
     start:  Length
     end:    Length
@@ -137,6 +150,7 @@ class FiberConfig(_Strict):
     reflectors: list[ReflectorEntry] = Field(default_factory=list)
     fbg_arrays: list[FBGEntry] = Field(default_factory=list)
     index_segments: list[IndexSegment] = Field(default_factory=list)
+    index_fluctuations: IndexFluctuations | None = None
     crosstalk: CrosstalkConfig | None = None
 
 
