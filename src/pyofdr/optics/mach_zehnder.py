@@ -46,9 +46,20 @@ class MachZehnder(PipelineStep):
         self.nl_a3 = src["sweep_nonlinearity_a3"]
         self.ripple_amp = src["sweep_ripple_amplitude"]
         self.ripple_period = src["sweep_ripple_period"]
+        # group-velocity dispersion. beta2 = -lambda^2 D / (2 pi c).
+        # both signs valid; only |beta2|>0 triggers the warp.
+        self.center_wl = src["center_wavelength"]
+        self.sweep_duration = src["sweep_duration"]
+        self.D = self.config["fiber"].get("dispersion_D", 0.0)
+        self.beta2 = (
+            -self.center_wl**2 * self.D / (2.0 * math.pi * C)
+            if self.D != 0 else 0.0
+        )
+        self._has_dispersion = (self.beta2 != 0.0)
         self._has_nonlinearity = (
             self.nl_a2 != 0 or self.nl_a3 != 0
             or (self.ripple_amp > 0 and self.ripple_period > 0)
+            or self._has_dispersion   # GVD reuses the time-warp engine
         )
         self.linewidth = src["linewidth"]
         self.n_core = self.config["fiber"]["n_core"]
@@ -154,6 +165,17 @@ class MachZehnder(PipelineStep):
         if self.ripple_amp > 0 and self.ripple_period > 0:
             delta_nu = delta_nu + self.ripple_amp * xp.sin(
                 2.0 * math.pi * t / self.ripple_period)
+
+        # GVD adds 4*pi^2 * beta2 * gamma^2 * z * (t-T/2)^2 to the beat
+        # phase. factoring out z gives phi(z,t) = z*K(t), and the warp
+        # engine just needs an extra delta_nu = pi*beta2*gamma^2*c/n*(t-T/2)^2
+        # (so that gamma * s = K when s = t + delta_nu/gamma). z-independent
+        # because the broadening shows up in the FFT itself.
+        if self._has_dispersion:
+            tc = t - T / 2.0
+            delta_nu = delta_nu + (
+                math.pi * self.beta2 * gamma**2 * C / self.n_core * tc**2
+            )
 
         # warped time: where in the "ideal" timeline each real sample falls
         s = t + delta_nu / gamma

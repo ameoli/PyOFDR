@@ -29,6 +29,9 @@ Power     = Annotated[float, BeforeValidator(_parse("watt"))]
 Voltage   = Annotated[float, BeforeValidator(_parse("volt"))]
 Current   = Annotated[float, BeforeValidator(_parse("ampere"))]
 Resistance = Annotated[float, BeforeValidator(_parse("ohm"))]
+# GVD parameter D = -2 pi c beta2 / lambda^2.  SI is s/m^2.
+# Typical "ps/(nm km)" string also accepted via pint.
+DispersionD = Annotated[float, BeforeValidator(_parse("second/meter**2"))]
 
 
 class _Strict(BaseModel):
@@ -151,6 +154,9 @@ class FiberConfig(_Strict):
     fbg_arrays: list[FBGEntry] = Field(default_factory=list)
     index_segments: list[IndexSegment] = Field(default_factory=list)
     index_fluctuations: IndexFluctuations | None = None
+    # group-velocity dispersion. 0 disables. SMF-28 @ 1550 nm: ~1.7e-5
+    # in SI s/m^2 (= 17 ps/(nm km)). signed: positive for anomalous.
+    dispersion_D: DispersionD = Field(0.0)
     crosstalk: CrosstalkConfig | None = None
 
 
