@@ -9,13 +9,23 @@ End-to-end OFDR simulation, from the laser sweep to digitized samples.
 Think of it as a virtual optical bench.
 
 ## Key Feature
-Simulates the full OFDR measureement chain:
+Simulates the full OFDR measurement chain:
 
 ```
 Swept laser  -->  Mach-Zehnder interferometer  -->  Fiber (Rayleigh)  -->  Detector  -->  ADC
 ```
 
 Outputs digitized beat signal identical to what you'd get from a real instrument (Luna OBR etc).
+
+## What's simulated
+- **Source**: linear sweep with nonlinearity and ripple, phase noise (Wiener + flicker + RW), RIN
+- **Interferometer**: main MZ + auxiliary MZI for k-clock resampling, optical circulator
+- **Fiber**: Rayleigh backscatter, attenuation, macrobend loss, discrete reflectors, weak FBG arrays,
+  stochastic n(z), chromatic dispersion (GVD)
+- **Strain**: static + dynamic (harmonic, impulsive, thermal, random vibration), Cox shear-lag coupling
+- **Detection**: balanced photodetector, shot/thermal/dark-current noise, anti-alias + Butterworth LPF
+- **ADC**: clip, quantize, jitter, DNL/INL, ENOB
+- **Output**: HDF5 streaming, multi-sweep campaigns
 
 ## Install
 ```bash
@@ -47,7 +57,8 @@ pytest tests/ -v
 ```
 
 ## Status
-Very early prototype
+Alpha. End-to-end pipeline working.
+V1.0 in preparation -- API may still change.
 
 ## Licence
 MIT
