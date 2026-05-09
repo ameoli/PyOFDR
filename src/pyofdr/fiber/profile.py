@@ -10,6 +10,7 @@ from pyofdr.core.pipeline import PipelineStep
 from pyofdr.fiber.attenuation import round_trip_attenuation, round_trip_attenuation_varying
 from pyofdr.fiber.bends import bend_loss_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
+from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.reflectors import apply_connector_losses, inject_reflectors
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
@@ -37,6 +38,7 @@ class FiberGenerator(PipelineStep):
         self.index_segments = fiber.get("index_segments", [])
         self.index_fluctuations = fiber.get("index_fluctuations", None)
         self.crosstalk = fiber.get("crosstalk", None)
+        self.multiple_scattering = fiber.get("multiple_scattering", None)
         self.seed = self.config["simulation"]["seed"]
         self.center_wl = source["center_wavelength"]
 
@@ -95,6 +97,18 @@ class FiberGenerator(PipelineStep):
         # discrete reflectors (connectors, splices, etc)
         if self.reflectors:
             inject_reflectors(profile, z, dz, self.reflectors, xp=xp)
+
+        # cascading multi-bounce ghosts between those reflectors (#35).
+        # added before the per-bin index phase so each ghost picks up
+        # the same phi_n at its apparent bin -- a small-perturbation
+        # approximation (ghost path is longer than 2*z_app, so strictly
+        # the phase is not phi_n[bin_app]; ok while delta_n stays small).
+        if self.multiple_scattering is not None and self.reflectors:
+            add_ghost_reflections(
+                profile, dz, self.reflectors,
+                max_order=self.multiple_scattering["max_order"],
+                xp=xp,
+            )
 
         # small-signal n(z) perturbation -- each scatterer at z picks up
         # a round-trip phase from the integrated delta_n up to z. Two

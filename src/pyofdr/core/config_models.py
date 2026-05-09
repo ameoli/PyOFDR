@@ -141,6 +141,17 @@ class CrosstalkConfig(_Strict):
     topology: Literal["hex7", "linear"] = "hex7"
 
 
+class MultipleScatteringConfig(_Strict):
+    """Cascading multi-bounce ghosts between discrete reflectors (#35).
+
+    Order N enumerates paths with 2N+1 reflection events; the dominant
+    case is N=2 (e.g. input connector + end face -> ghost at 2*z_b-z_a).
+    Continuum Rayleigh-Rayleigh background is tracked in #79 -- it sits
+    well below shot/RIN/thermal in standard SMF.
+    """
+    max_order: int = Field(2, ge=2, le=3)
+
+
 class FiberConfig(_Strict):
     length: Length = Field(10.0, gt=0)
     n_core: float = Field(1.4682, gt=1.0)
@@ -158,6 +169,7 @@ class FiberConfig(_Strict):
     # in SI s/m^2 (= 17 ps/(nm km)). signed: positive for anomalous.
     dispersion_D: DispersionD = Field(0.0)
     crosstalk: CrosstalkConfig | None = None
+    multiple_scattering: MultipleScatteringConfig | None = None
 
 
 class SourceConfig(_Strict):

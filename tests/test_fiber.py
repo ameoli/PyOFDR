@@ -180,6 +180,72 @@ class TestDiscreteReflectors:
             acq.attenuation_envelope, acq_bare.attenuation_envelope)
 
 
+class TestMultipleScattering:
+    """Multi-bounce ghost reflections from cascading reflectors (#35)."""
+
+    def test_default_disabled(self):
+        # without the multiple_scattering block the profile is untouched
+        refs = [{"z": 0.0, "R": 0.01}, {"z": 0.3, "R": 0.04}]
+        cfg = {**CFG, "fiber": {**CFG["fiber"], "reflectors": refs}}
+        a = FiberGenerator(cfg).process(Acquisition())
+        cfg2 = {**cfg, "fiber": {**cfg["fiber"], "multiple_scattering": None}}
+        b = FiberGenerator(cfg2).process(Acquisition())
+        np.testing.assert_array_equal(a.fiber_profile, b.fiber_profile)
+
+    def test_double_bounce_ghost_position_and_amplitude(self):
+        """Two reflectors at z=0 and z=z_b -> ghost at 2*z_b with
+        amplitude sqrt(R_a) * R_b."""
+        z_b = 0.3
+        R_a, R_b = 0.01, 0.04
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "rayleigh_coefficient_dB": -300,    # kill Rayleigh
+               "reflectors": [{"z": 0.0, "R": R_a}, {"z": z_b, "R": R_b}],
+               "multiple_scattering": {"max_order": 2}}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        # match the bin convention used inside the module: each z is rounded
+        # to its bin first, then the apparent bin is 2*bin_b - bin_a (otherwise
+        # we end up off-by-one when 2*round(x) != round(2*x))
+        bin_b = int(round(z_b / acq.dz))
+        ghost_bin = 2 * bin_b
+        amp = np.abs(acq.fiber_profile[0, ghost_bin])
+        np.testing.assert_allclose(amp, np.sqrt(R_a) * R_b, atol=1e-10)
+
+    def test_no_ghost_when_disabled(self):
+        z_b = 0.3
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "rayleigh_coefficient_dB": -300,
+               "reflectors": [{"z": 0.0, "R": 0.01}, {"z": z_b, "R": 0.04}]}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        ghost_bin = 2 * int(round(z_b / acq.dz))
+        amp = np.abs(acq.fiber_profile[0, ghost_bin])
+        # ~0 since Rayleigh is suppressed and no ghost added
+        assert amp < 1e-9
+
+    def test_ghost_outside_range_dropped(self):
+        # ghost at 2*0.6 = 1.2 m is past the 1 m fiber -- no error, no peak
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "reflectors": [{"z": 0.0, "R": 0.01}, {"z": 0.6, "R": 0.04}],
+               "multiple_scattering": {"max_order": 2}}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        assert acq.fiber_profile.shape[-1] == len(acq.z)
+
+    def test_higher_order_adds_extra_paths(self):
+        # max_order=3 enumerates 5-reflection paths the order-2 sweep missed
+        refs = [{"z": 0.0, "R": 0.01},
+                {"z": 0.1, "R": 0.04},
+                {"z": 0.2, "R": 0.09}]
+        cfg2 = {**CFG, "fiber": {**CFG["fiber"],
+                "rayleigh_coefficient_dB": -300,
+                "reflectors": refs,
+                "multiple_scattering": {"max_order": 2}}}
+        cfg3 = {**cfg2, "fiber": {**cfg2["fiber"],
+                "multiple_scattering": {"max_order": 3}}}
+        a = FiberGenerator(cfg2).process(Acquisition())
+        b = FiberGenerator(cfg3).process(Acquisition())
+        diff = np.abs(np.abs(b.fiber_profile) - np.abs(a.fiber_profile)).max()
+        assert diff > 0
+
+
 class TestWeakFBG:
     """Weak FBG arrays under Born approximation (#40)."""
 
