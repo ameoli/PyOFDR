@@ -244,6 +244,35 @@ class TestMultipleScattering:
         amp_anywhere_else = np.abs(acq.fiber_profile[0, 1:]).max()
         assert amp_anywhere_else < 1e-9
 
+    def test_three_reflector_amplitudes(self):
+        """End-to-end physics check: three known reflectors, verify all
+        five distinct order-2 ghost amplitudes against prod sqrt(R)."""
+        # carefully spaced so each ghost lands at its own distinct bin
+        z_a, z_b, z_c = 0.0, 0.07, 0.19
+        R_a, R_b, R_c = 0.01, 0.04, 0.09
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "rayleigh_coefficient_dB": -300,
+               "reflectors": [{"z": z_a, "R": R_a},
+                              {"z": z_b, "R": R_b},
+                              {"z": z_c, "R": R_c}],
+               "multiple_scattering": {"max_order": 2}}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        dz = acq.dz
+        Bb = int(round(z_b / dz))
+        Bc = int(round(z_c / dz))
+        prof = np.abs(acq.fiber_profile[0])
+        # (b,a,b) -> 2*Bb, amp sqrt(R_a)*R_b
+        np.testing.assert_allclose(prof[2 * Bb], np.sqrt(R_a) * R_b, atol=1e-10)
+        # (c,a,c) -> 2*Bc, amp sqrt(R_a)*R_c
+        np.testing.assert_allclose(prof[2 * Bc], np.sqrt(R_a) * R_c, atol=1e-10)
+        # (c,b,c) -> 2*Bc - Bb, amp sqrt(R_b)*R_c
+        np.testing.assert_allclose(prof[2 * Bc - Bb],
+                                    np.sqrt(R_b) * R_c, atol=1e-10)
+        # (b,a,c) and (c,a,b) both land at Bb+Bc and add coherently:
+        # 2 * sqrt(R_a) * sqrt(R_b) * sqrt(R_c)
+        expected = 2.0 * np.sqrt(R_a * R_b * R_c)
+        np.testing.assert_allclose(prof[Bb + Bc], expected, atol=1e-10)
+
     def test_higher_order_adds_extra_paths(self):
         # max_order=3 enumerates 5-reflection paths the order-2 sweep missed
         refs = [{"z": 0.0, "R": 0.01},
