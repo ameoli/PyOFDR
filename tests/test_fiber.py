@@ -229,6 +229,21 @@ class TestMultipleScattering:
         acq = FiberGenerator(cfg).process(Acquisition())
         assert acq.fiber_profile.shape[-1] == len(acq.z)
 
+    def test_out_of_range_reflector_ignored(self):
+        # a reflector past the fiber end is dropped by inject_reflectors;
+        # it must also be ignored as a ghost source, otherwise it would
+        # add a spurious peak at some real bin
+        cfg = {**CFG, "fiber": {**CFG["fiber"],
+               "rayleigh_coefficient_dB": -300,
+               "reflectors": [{"z": 0.0, "R": 0.04},
+                              {"z": 999.0, "R": 0.04}],
+               "multiple_scattering": {"max_order": 2}}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        # only 1 in-range reflector left -> no order >= 2 paths possible
+        # entire profile should be ~0 (Rayleigh suppressed), peak only at z=0
+        amp_anywhere_else = np.abs(acq.fiber_profile[0, 1:]).max()
+        assert amp_anywhere_else < 1e-9
+
     def test_higher_order_adds_extra_paths(self):
         # max_order=3 enumerates 5-reflection paths the order-2 sweep missed
         refs = [{"z": 0.0, "R": 0.01},
