@@ -7,4 +7,5 @@ build/
 .pytest_cache/
 *.h5
 *.png
+!docs/img/*.png
 data/
