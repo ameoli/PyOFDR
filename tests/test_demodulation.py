@@ -341,3 +341,58 @@ class TestIntegration:
         inside = (z > 0.35) & (z < 0.65)
         median_eps = np.median(eps_rec[inside])
         assert abs(median_eps - eps_true) / eps_true < 0.30
+
+
+class TestStrainRecoveryRobustness:
+    """Strain recovery via windowed sub-spectrum xcorr must hold across
+    realistic detector / gauge combinations. Sweeps shot noise on/off
+    against three gauges (2 mm, 1 cm, 5 cm). Part of #5."""
+
+    @staticmethod
+    def _run_pair(shot_on):
+        from pyofdr.core.campaign import run_campaign
+        eps_true = 1e-3
+        cfg_ref = {**CFG, "simulation": {**CFG["simulation"], "n_sweeps": 1},
+                   "strain": {"segments": []},
+                   "detection": {**CFG["detection"],
+                                 "shot_noise":   shot_on,
+                                 "thermal_nep":  0.0,
+                                 "dark_current": 0.0},
+                   "source": {**CFG["source"], "linewidth": 0.0}}
+        cfg_str = {**cfg_ref, "strain": {"segments":
+                   [{"start": 0.3, "end": 0.7, "epsilon": eps_true}]}}
+        acq_ref = run_campaign(cfg_ref)[0]
+        acq_str = run_campaign(cfg_str)[0]
+        return acq_ref, acq_str, eps_true
+
+    @pytest.mark.parametrize("shot_on",      [False, True])
+    @pytest.mark.parametrize("gauge_length", [2e-3, 1e-2, 5e-2])
+    def test_recovers_within_5pct(self, shot_on, gauge_length):
+        from pyofdr.utils.constants import C
+        from pyofdr.utils.units import wavelength_range_to_freq_range
+
+        acq_ref, acq_str, eps_true = self._run_pair(shot_on)
+
+        H_ref, _ = fft_reflectogram(
+            acq_ref.digital_main[0].astype(np.float64), acq_ref.dz)
+        H_str, _ = fft_reflectogram(
+            acq_str.digital_main[0].astype(np.float64), acq_str.dz)
+
+        wl       = CFG["source"]["center_wavelength"]
+        sweep_hz = wavelength_range_to_freq_range(wl, CFG["source"]["sweep_range"])
+        nu0      = C / wl
+
+        # stride ~ gauge / 5 keeps a sensible overlap across sizes
+        zc, eps_rec = windowed_xcorr_strain(
+            H_str, H_ref, acq_ref.dz,
+            gauge_length=gauge_length, stride=max(gauge_length / 5, 2e-3),
+            sweep_range_hz=sweep_hz, center_freq=nu0, p_e=0.22,
+        )
+        # half-gauge margin keeps the window fully inside the strained range
+        margin = gauge_length / 2.0
+        inside = (zc > 0.3 + margin) & (zc < 0.7 - margin)
+        assert inside.sum() > 0, "no fully-inside windows for this gauge"
+
+        np.testing.assert_allclose(
+            np.median(eps_rec[inside]), eps_true, rtol=0.05,
+            err_msg=f"shot={shot_on}, gauge={gauge_length*1e3:.0f} mm")
