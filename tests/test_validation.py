@@ -176,3 +176,98 @@ class TestAttenuationSlope:
         # numerical noise
         slope = self._fit_slope(0.0)
         assert abs(slope) < 1e-6
+
+
+# ── Froggatt-Moore sensitivities (strain + temperature) ────────────
+
+def _xcorr_df(cfg_ref, cfg_meas):
+    """Run two pipelines and pull the local freq shift on the inside
+    of the perturbed segment via windowed_xcorr_strain. Returns
+    (df_measured_Hz, nu0_Hz, p_e)."""
+    from pyofdr.analysis.demodulation import (fft_reflectogram,
+                                              windowed_xcorr_strain)
+    from pyofdr.utils.constants import C
+    from pyofdr.utils.units import wavelength_range_to_freq_range
+
+    acq_ref  = run_campaign(cfg_ref)[0]
+    acq_meas = run_campaign(cfg_meas)[0]
+
+    H_ref,  _ = fft_reflectogram(
+        acq_ref.digital_main[0].astype(np.float64), acq_ref.dz)
+    H_meas, _ = fft_reflectogram(
+        acq_meas.digital_main[0].astype(np.float64), acq_meas.dz)
+
+    wl       = cfg_ref["source"]["center_wavelength"]
+    sweep_hz = wavelength_range_to_freq_range(wl, cfg_ref["source"]["sweep_range"])
+    nu0      = C / wl
+    p_e      = 0.22
+
+    zc, eps_rec = windowed_xcorr_strain(
+        H_meas, H_ref, acq_ref.dz,
+        gauge_length=0.01, stride=2e-3,
+        sweep_range_hz=sweep_hz, center_freq=nu0, p_e=p_e,
+    )
+    # 5 cm margin inside the [0.3, 0.7] segment avoids edge effects from
+    # the gauge straddling the boundary
+    inside = (zc > 0.38) & (zc < 0.62)
+    df = -float(np.median(eps_rec[inside])) * nu0 * (1.0 - p_e)
+    return df, nu0, p_e
+
+
+def _strain_cfg(eps_true):
+    cfg = _noiseless_cfg()
+    cfg["fiber"]["length"] = 1.0
+    cfg["fiber"]["rayleigh_coefficient_dB"] = -82.0   # normal Rayleigh
+    cfg_ref = deepcopy(cfg)
+    cfg_str = deepcopy(cfg)
+    cfg_str["strain"] = {"segments":
+        [{"start": 0.3, "end": 0.7, "epsilon": eps_true}]}
+    return cfg_ref, cfg_str
+
+
+def _temp_cfg(dT_true):
+    cfg = _noiseless_cfg()
+    cfg["fiber"]["length"] = 1.0
+    cfg["fiber"]["rayleigh_coefficient_dB"] = -82.0
+    cfg_ref = deepcopy(cfg)
+    cfg_dT  = deepcopy(cfg)
+    cfg_dT["temperature"] = {"segments":
+        [{"start": 0.3, "end": 0.7, "delta_T": dT_true}]}
+    return cfg_ref, cfg_dT
+
+
+class TestStrainShiftSensitivity:
+    """End-to-end check of df = d_nu/d_eps * eps with
+    d_nu/d_eps = -(1-p_e)*nu_0. compute_budget exposes this; the
+    simulator must reproduce it after FFT + windowed xcorr (issue #5)."""
+
+    def test_uniform_strain_matches_budget(self):
+        eps_true = 1.0e-3
+        cfg_ref, cfg_str = _strain_cfg(eps_true)
+        df_meas, _, _ = _xcorr_df(cfg_ref, cfg_str)
+        df_expected   = compute_budget(cfg_ref)["d_nu_d_eps"] * eps_true
+        assert df_meas == pytest.approx(df_expected, rel=0.05), \
+            f"strain shift {df_meas:.3e} Hz vs budget {df_expected:.3e} Hz"
+
+    def test_sign_flip_on_compression(self):
+        # negative eps (compression) must flip the sign of df
+        df_t,  _, _ = _xcorr_df(*_strain_cfg(+1.0e-3))
+        df_c,  _, _ = _xcorr_df(*_strain_cfg(-1.0e-3))
+        assert df_t * df_c < 0
+        assert abs(df_t + df_c) < 0.1 * abs(df_t)   # symmetric to within 10 %
+
+
+class TestTemperatureShiftSensitivity:
+    """df = d_nu/d_T * dT with d_nu/d_T = -(alpha_L + xi)*nu_0.
+    Same machinery as strain via the Froggatt-Moore cross-sensitivity
+    (a piece of #75 closed here)."""
+
+    def test_uniform_dT_matches_budget(self):
+        # 50 K so the shift is comfortably above the gauge sub-bin
+        # resolution (~10 GHz at gauge=1 cm, sweep=40 nm)
+        dT_true = 50.0
+        cfg_ref, cfg_dT = _temp_cfg(dT_true)
+        df_meas, _, _ = _xcorr_df(cfg_ref, cfg_dT)
+        df_expected   = compute_budget(cfg_ref)["d_nu_d_T"] * dT_true
+        assert df_meas == pytest.approx(df_expected, rel=0.05), \
+            f"temperature shift {df_meas:.3e} Hz vs budget {df_expected:.3e} Hz"
