@@ -59,6 +59,56 @@ class TestMulticore:
         assert not np.array_equal(acq.analog_main[0], acq.analog_main[1])
 
 
+class TestEndToEndDeterminism:
+    """Same seed + every stochastic source on -> bitwise-identical
+    outputs between two run_campaign calls. Guards seeding regressions
+    in any of: source phase noise (Lorentzian + 1/f + 1/f^2), RIN,
+    detector (shot/thermal/dark), ADC (jitter, DNL, INL). Part of #5."""
+
+    @staticmethod
+    def _all_noise_on_cfg():
+        return {**CFG,
+                "simulation": {**CFG["simulation"], "seed": 12345},
+                "source": {**CFG["source"],
+                           "linewidth":            1e5,        # 100 kHz Lorentzian
+                           "flicker_noise_Hz":     1e3,
+                           "random_walk_noise_Hz": 1e2,
+                           "rin_dB_per_Hz":       -120.0,
+                           "power_envelope_edge_dB": 3.0},
+                "detection": {**CFG["detection"],
+                              "shot_noise":   True,
+                              "thermal_nep":  1.0e-11,
+                              "dark_current": 1.0e-9},
+                "adc": {**CFG["adc"],
+                        "jitter_rms":   1.0e-12,    # 1 ps RMS
+                        "dnl_rms_lsb":  0.2,
+                        "inl_peak_lsb": 1.0}}
+
+    def test_same_seed_yields_identical_digital(self):
+        cfg = self._all_noise_on_cfg()
+        a = run_campaign(cfg)[0]
+        b = run_campaign(cfg)[0]
+        np.testing.assert_array_equal(a.digital_main, b.digital_main)
+
+    def test_same_seed_identical_at_every_stage(self):
+        # not just the final ADC output -- analog and photocurrent must
+        # also match, so a regression on shot/thermal/dark or any earlier
+        # stochastic stage gets caught instead of being masked by the ADC
+        cfg = self._all_noise_on_cfg()
+        a = run_campaign(cfg)[0]
+        b = run_campaign(cfg)[0]
+        np.testing.assert_array_equal(a.photocurrent_main, b.photocurrent_main)
+        np.testing.assert_array_equal(a.analog_main,        b.analog_main)
+
+    def test_different_seed_differs(self):
+        # sanity: changing the seed must actually change the output
+        cfg_a = self._all_noise_on_cfg()
+        cfg_b = {**cfg_a, "simulation": {**cfg_a["simulation"], "seed": 12346}}
+        a = run_campaign(cfg_a)[0]
+        b = run_campaign(cfg_b)[0]
+        assert not np.array_equal(a.digital_main, b.digital_main)
+
+
 class TestSeeding:
 
     def test_components_get_distinct_seeds(self):
