@@ -639,6 +639,43 @@ class TestRayleighStatistics:
         assert p > 0.01, f"KS rejects uniform phase (p={p:.3g})"
 
 
+class TestRayleighMeanPowerVsCoefficient:
+    """Sharpens TestRayleighStatistics.test_mean_power: across 4 decades
+    of R the mean of |E|^2 must equal R_lin * dz, and -- since the
+    underlying field is circular gaussian -- |E|^2 is exponential, so
+    sqrt(Var) must match the mean too. Closes the rayleigh-stats piece
+    of issue #5."""
+
+    @staticmethod
+    def _profile_at_R(R_dB, length=2.0, seed=11):
+        cfg = {**CFG, "simulation": {"seed": seed},
+               "fiber": {**CFG["fiber"], "length": length,
+                         "rayleigh_coefficient_dB": R_dB,
+                         "attenuation_dB_per_km": 0.0}}
+        acq = FiberGenerator(cfg).process(Acquisition())
+        return acq, cfg
+
+    def test_mean_scales_linearly_with_R_lin(self):
+        # spans 30 dB. mean / (R_lin * dz) must be the same constant
+        # within ~2 % at 100k samples per profile
+        ratios = []
+        for R_dB in (-100.0, -90.0, -80.0, -70.0):
+            acq, _ = self._profile_at_R(R_dB)
+            P     = np.abs(acq.fiber_profile[0]) ** 2
+            R_lin = 10 ** (R_dB / 10.0)
+            ratios.append(P.mean() / (R_lin * acq.dz))
+        np.testing.assert_allclose(ratios, 1.0, rtol=0.02)
+
+    def test_variance_matches_exponential_prediction(self):
+        # for |E|^2 ~ Exp(1/(R_lin*dz)) we have Var = mean^2. so
+        # sqrt(Var) should land on the same value as the mean.
+        acq, cfg = self._profile_at_R(-82.0, length=4.0)
+        P = np.abs(acq.fiber_profile[0]) ** 2
+        target = 10 ** (cfg["fiber"]["rayleigh_coefficient_dB"] / 10.0) * acq.dz
+        np.testing.assert_allclose(P.mean(),         target, rtol=0.01)
+        np.testing.assert_allclose(np.sqrt(P.var()), target, rtol=0.02)
+
+
 class TestCrosstalk:
     """MCF core-to-core crosstalk, level A (phase-scrambled scalar), #47."""
 
