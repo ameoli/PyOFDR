@@ -92,6 +92,15 @@ class MachZehnder(PipelineStep):
             visibility = xp.exp(-math.pi * self.linewidth * tau)
             weighted = weighted * visibility
 
+        # circulator return-loss: reflection at the port-2 face, zero
+        # round-trip delay -> a discrete reflector sitting in the z=0 bin.
+        # picks up IL^2 naturally via the prefactor further down.
+        rl = self.circulator.return_loss
+        if rl > 0:
+            if weighted is acq.fiber_profile:
+                weighted = weighted.copy()
+            weighted[:, 0] = weighted[:, 0] + rl
+
         # zero-pad up to n_samples along the time axis
         n_pad = acq.n_samples - n_z
         h = xp.concatenate([
@@ -129,9 +138,20 @@ class MachZehnder(PipelineStep):
 
         acq.photocurrent_main = prefactor * P_t * xp.real(beat)
 
+        # circulator port-1 -> port-3 leakage: light bypasses the fiber
+        # (and the round-trip IL) entirely and lands at zero delay -> a
+        # DC offset on the beat, riding the source power envelope (so it
+        # also carries RIN / edge droop).
+        iso = self.circulator.isolation
+        if iso > 0:
+            iso_amp = 2.0 * math.sqrt(eta * (1.0 - eta)) * iso
+            acq.photocurrent_main = acq.photocurrent_main + iso_amp * P_t
+
         acq.add_log("optics", topology="mach_zehnder",
                      scale=float(prefactor * xp.mean(P_t)),
                      circulator_IL_dB=self.circulator.insertion_loss_dB,
+                     circulator_iso_dB=self.circulator.isolation_dB,
+                     circulator_RL_dB=self.circulator.return_loss_dB,
                      sweep_nonlinearity=self._has_nonlinearity,
                      coherence_rolloff=self.linewidth > 0,
                      n_fbgs=len(self.fbg_arrays))

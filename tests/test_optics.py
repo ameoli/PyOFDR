@@ -259,9 +259,13 @@ class TestCirculator:
     def test_circulator_reduces_signal(self):
         """MZI output with circulator should be weaker than without."""
         cfg_no_circ = {**CFG, "optics": {**CFG["optics"],
-                       "circulator": {"insertion_loss_dB": 0.0}}}
+                       "circulator": {"insertion_loss_dB": 0.0,
+                                      "isolation_dB": 400.0,
+                                      "return_loss_dB": 400.0}}}
         cfg_circ = {**CFG, "optics": {**CFG["optics"],
-                    "circulator": {"insertion_loss_dB": 3.0}}}
+                    "circulator": {"insertion_loss_dB": 3.0,
+                                   "isolation_dB": 400.0,
+                                   "return_loss_dB": 400.0}}}
         acq0 = Acquisition()
         acq0 = FiberGenerator(cfg_no_circ).process(acq0)
         acq0 = SweptLaser(cfg_no_circ).process(acq0)
@@ -274,3 +278,73 @@ class TestCirculator:
 
         # signal power should be lower with circulator loss
         assert np.var(acq1.photocurrent_main) < np.var(acq0.photocurrent_main)
+
+
+class TestCirculatorLeakage:
+    """Isolation + return-loss show up as a z=0 spike on the reflectogram."""
+
+    @staticmethod
+    def _cfg(*, iso_dB, rl_dB, il_dB=0.0):
+        return {**CFG,
+                "fiber":  {**CFG["fiber"], "rayleigh_coefficient_dB": -200.0},
+                "optics": {**CFG["optics"],
+                           "circulator": {"insertion_loss_dB": il_dB,
+                                          "isolation_dB": iso_dB,
+                                          "return_loss_dB": rl_dB}}}
+
+    def _run(self, cfg):
+        acq = Acquisition()
+        acq = FiberGenerator(cfg).process(acq)
+        acq = SweptLaser(cfg).process(acq)
+        return MachZehnder(cfg).process(acq)
+
+    def test_return_loss_creates_z0_spike(self):
+        # with the fiber profile pushed below 1e-10 the rfft bin at f=0
+        # is dominated by the return-loss reflector. lowering RL_dB by 20
+        # raises the bin by 20 dB.
+        a_loose = self._run(self._cfg(iso_dB=400, rl_dB=40))
+        a_tight = self._run(self._cfg(iso_dB=400, rl_dB=60))
+        s_loose = np.abs(np.fft.rfft(a_loose.photocurrent_main[0]))
+        s_tight = np.abs(np.fft.rfft(a_tight.photocurrent_main[0]))
+        ratio_dB = 20.0 * np.log10(s_loose.max() / s_tight.max())
+        np.testing.assert_allclose(ratio_dB, 20.0, atol=0.5)
+
+    def test_isolation_creates_dc_offset(self):
+        # leakage is purely DC -> the mean of the photocurrent must scale
+        # like 10**(-iso_dB/20). it does NOT pick up the round-trip IL^2.
+        a_50 = self._run(self._cfg(iso_dB=50, rl_dB=400, il_dB=3.0))
+        a_70 = self._run(self._cfg(iso_dB=70, rl_dB=400, il_dB=3.0))
+        ratio = a_50.photocurrent_main.mean() / a_70.photocurrent_main.mean()
+        # 20 dB step in iso -> 10x in amplitude
+        np.testing.assert_allclose(ratio, 10.0, rtol=0.02)
+
+    def test_return_loss_picks_up_IL_squared(self):
+        # the RL reflector sits before the IL^2 prefactor, so raising the
+        # circulator IL by 3 dB drops the z=0 spike by 6 dB (round trip).
+        a_0 = self._run(self._cfg(iso_dB=400, rl_dB=40, il_dB=0.0))
+        a_3 = self._run(self._cfg(iso_dB=400, rl_dB=40, il_dB=3.0))
+        s_0 = np.abs(np.fft.rfft(a_0.photocurrent_main[0])).max()
+        s_3 = np.abs(np.fft.rfft(a_3.photocurrent_main[0])).max()
+        drop_dB = 20.0 * np.log10(s_3 / s_0)
+        np.testing.assert_allclose(drop_dB, -6.0, atol=0.2)
+
+    def test_isolation_rides_power_envelope(self):
+        # the leakage DC term is multiplied by P(t), so a 6 dB parabolic
+        # droop on the source must show up as 6 dB on the mean of the
+        # leakage at the edges versus the centre.
+        cfg = self._cfg(iso_dB=20, rl_dB=400)  # 20 dB iso so leakage dominates
+        cfg["source"] = {**cfg["source"],
+                         "linewidth": 0.0,
+                         "power_envelope_edge_dB": 6.0}
+        acq = self._run(cfg)
+        pm = acq.photocurrent_main[0]
+        n = len(pm)
+        # the photocurrent is dc_offset + small zero-mean fluctuation. take a
+        # short-window mean to track the local DC.
+        win = max(n // 200, 100)
+        from scipy.ndimage import uniform_filter1d
+        local_dc = uniform_filter1d(pm, win)
+        edge = 0.5 * (local_dc[win] + local_dc[-win])
+        centre = local_dc[n // 2]
+        drop_dB = 10.0 * np.log10(edge / centre)
+        np.testing.assert_allclose(drop_dB, -6.0, atol=0.3)
