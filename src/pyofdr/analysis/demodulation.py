@@ -367,14 +367,14 @@ def freq_shift_to_strain(df, center_freq, p_e=0.22):
 
 
 def freq_shift_to_temperature(df, center_freq,
-                               alpha=5.5e-7, xi=6.3e-6):
+                               alpha=5.5e-7, xi=6.5e-6):
     """Convert Rayleigh frequency shift to temperature change.
 
     dT = -df / (nu_0 * (alpha + xi))
 
     Default coefficients are for standard silica SMF at 1550 nm:
       alpha ~ 0.55e-6 /K  (thermal expansion)
-      xi    ~ 6.3e-6  /K  (thermo-optic)
+      xi    ~ 6.5e-6  /K  (thermo-optic)
     """
     df = np.asarray(df, dtype=np.float64)
     return -df / (center_freq * (alpha + xi))
