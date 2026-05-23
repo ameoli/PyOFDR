@@ -31,6 +31,7 @@ import math
 from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.config import sweep_period
 from pyofdr.core.pipeline import PipelineStep
 from pyofdr.strain_transfer.motions import check_motion_sampling, evaluate_motion
 
@@ -48,7 +49,7 @@ class TemperaturePerturbation(PipelineStep):
         self.xi = temp["thermo_optic"]
         self.center_wl = self.config["source"]["center_wavelength"]
         self.n_core = self.config["fiber"]["n_core"]
-        self.sweep_duration = self.config["source"]["sweep_duration"]
+        self.sweep_period = sweep_period(self.config)
 
         self._has_motion = any(s.get("motion") is not None for s in self.segments)
         self._cached_phase = None
@@ -56,7 +57,7 @@ class TemperaturePerturbation(PipelineStep):
 
         if self._has_motion:
             for i, seg in enumerate(self.segments):
-                check_motion_sampling(seg.get("motion"), self.sweep_duration, i)
+                check_motion_sampling(seg.get("motion"), self.sweep_period, i)
 
     def process(self, acq: Acquisition) -> Acquisition:
         if not self.segments:
@@ -76,7 +77,7 @@ class TemperaturePerturbation(PipelineStep):
 
         z = acq.z
         dz = acq.dz
-        t_sweep = acq.sweep_index * self.sweep_duration
+        t_sweep = acq.sweep_index * self.sweep_period
 
         # piecewise-constant dT(z) at this sweep's lab time
         dT = xp.zeros_like(z)

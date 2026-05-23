@@ -11,8 +11,9 @@ strain itself, otherwise we'd be double-counting the geometric stretch.
 
 Segments may carry an optional `motion` field (harmonic for now) that
 varies the strain across sweeps at the sweep rate (t_sweep =
-sweep_index * sweep_duration). Static segments are cached as before;
-segments with motion trigger recomputation every sweep.
+sweep_index * sweep_period, see core.config.sweep_period). Static
+segments are cached as before; segments with motion trigger
+recomputation every sweep.
 
 Host->fiber transfer is delegated to strain_transfer; default is
 ideal, cox shear-lag is available via config.
@@ -24,6 +25,7 @@ import math
 from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.config import sweep_period
 from pyofdr.core.pipeline import PipelineStep
 from pyofdr.strain_transfer import CoxShearLag, IdealTransfer, realize_segments
 from pyofdr.strain_transfer.motions import check_motion_sampling
@@ -41,7 +43,7 @@ class StrainPerturbation(PipelineStep):
         self.p_e = strain["photoelastic_coefficient"]
         self.center_wl = self.config["source"]["center_wavelength"]
         self.n_core = self.config["fiber"]["n_core"]
-        self.sweep_duration = self.config["source"]["sweep_duration"]
+        self.sweep_period = sweep_period(self.config)
 
         kind = strain["transfer"]
         if kind == "ideal":
@@ -62,7 +64,7 @@ class StrainPerturbation(PipelineStep):
         # to probe the aliased regime on purpose).
         if self._has_motion:
             for i, seg in enumerate(self.segments):
-                check_motion_sampling(seg.get("motion"), self.sweep_duration, i)
+                check_motion_sampling(seg.get("motion"), self.sweep_period, i)
 
     def process(self, acq: Acquisition) -> Acquisition:
         if not self.segments:
@@ -88,7 +90,7 @@ class StrainPerturbation(PipelineStep):
         base_profile = self._cached_base_profile
 
         # freeze motion at the sweep's lab time
-        t_sweep = acq.sweep_index * self.sweep_duration
+        t_sweep = acq.sweep_index * self.sweep_period
         current_segments = realize_segments(self.segments, t_sweep)
 
         eps_fiber = self.transfer.apply(current_segments, z, xp=xp)

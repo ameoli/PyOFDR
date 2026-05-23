@@ -63,6 +63,16 @@ def compute_derived(cfg: dict) -> dict:
     }
 
 
+def sweep_period(cfg: dict) -> float:
+    """Time between consecutive sweeps -- the slow-time step.
+
+    This is the cadence at which the dynamic perturbations (strain,
+    temperature) are sampled, not the within-sweep optical chirp. For the
+    swept laser it's just the sweep duration (sweeps are back-to-back).
+    """
+    return cfg["source"]["sweep_duration"]
+
+
 def print_info(cfg: dict) -> None:
     """Print a summary of the configuration."""
     d = compute_derived(cfg)
