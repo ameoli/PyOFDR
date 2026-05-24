@@ -69,9 +69,9 @@ pytest tests/ -v
 ```
 
 
-## Examples & notebooks
-- `examples/` -- minimal runnable scripts
-- `notebooks/` -- Jupyter tutorials
+## Examples
+`examples/` holds runnable Jupyter notebooks, one per topic.
+Open them with `jupyter lab examples/`.
 
 ## Status
 TBD
