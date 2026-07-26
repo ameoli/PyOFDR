@@ -133,8 +133,10 @@ def phase_difference_strain(spec_meas, spec_ref, dz,
 def cross_spectrum_shift(H_meas, H_ref, dz, n=1.4682, smooth_bins=0):
     """Estimate Rayleigh spectral shift between two reflectograms.
 
-    For each spatial bin, computes the phase of the complex
-    cross-product and converts to a frequency shift.
+    The perturbation phase accumulates along the fiber (see
+    fiber/strain.py), so the local shift comes from the spatial slope
+    of the cross-product phase, not from the phase itself. Sign
+    follows Froggatt-Moore: stretch/heating -> negative shift.
 
     Parameters
     ----------
@@ -165,11 +167,12 @@ def cross_spectrum_shift(H_meas, H_ref, dz, n=1.4682, smooth_bins=0):
         cross = (np.convolve(cross.real, kernel, mode="same")
                  + 1j * np.convolve(cross.imag, kernel, mode="same"))
 
-    phase = np.angle(cross)
+    phase = np.unwrap(np.angle(cross))
 
     # round-trip delay per spatial bin
     tau_cell = 2.0 * n * dz / C
-    freq_shift = phase / (2.0 * math.pi * tau_cell)
+    # cumulative phase -> differentiate to get the local shift
+    freq_shift = -np.gradient(phase) / (2.0 * math.pi * tau_cell)
     return freq_shift
 
 

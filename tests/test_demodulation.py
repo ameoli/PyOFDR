@@ -115,47 +115,90 @@ class TestPhaseDifference:
 
 class TestCrossSpectrumShift:
 
-    def test_recover_known_shift(self):
-        """Apply a constant frequency shift and recover it."""
+    def test_recover_uniform_shift(self):
+        """Uniform strain -> constant shift, Froggatt-Moore sign."""
         rng = np.random.default_rng(30)
         N = 2048
         dz = 20e-6
         n = 1.4682
+        p_e = 0.22
+        wl = 1550e-9
 
         H_ref = rng.standard_normal(N) + 1j * rng.standard_normal(N)
 
-        # apply a uniform spectral shift: phase = 2*pi*df * tau_cell
-        df_true = 1e9   # 1 GHz shift
-        tau_cell = 2.0 * n * dz / 299792458.0
-        phase = 2.0 * math.pi * df_true * tau_cell
+        # forward model applies *cumulative* phase (see fiber/strain.py)
+        eps = 1e-5
+        k0 = 2.0 * math.pi / wl
+        prefactor = 2.0 * k0 * n * (1.0 - p_e)
+        phase = prefactor * np.cumsum(np.full(N, eps)) * dz
         H_meas = H_ref * np.exp(1j * phase)
 
         df_rec = cross_spectrum_shift(H_meas, H_ref, dz, n=n)
-        # every bin should give df_true
-        np.testing.assert_allclose(df_rec, df_true, rtol=1e-10)
+        # stretch -> redshift, same value at every bin
+        nu0 = 299792458.0 / wl
+        df_true = -eps * nu0 * (1.0 - p_e)
+        np.testing.assert_allclose(df_rec, df_true, rtol=1e-9)
+
+        # round trip back to strain
+        eps_rec = freq_shift_to_strain(df_rec, nu0, p_e=p_e)
+        np.testing.assert_allclose(eps_rec, eps, rtol=1e-9)
+
+    def test_localised_segment(self):
+        """Strain over a segment: shift inside, zero elsewhere."""
+        rng = np.random.default_rng(31)
+        N = 2048
+        dz = 20e-6
+        n = 1.4682
+        p_e = 0.22
+        wl = 1550e-9
+
+        H_ref = rng.standard_normal(N) + 1j * rng.standard_normal(N)
+
+        z = np.arange(N) * dz
+        z0, z1 = 0.01, 0.03
+        eps = 1e-4
+        eps_field = np.where((z >= z0) & (z <= z1), eps, 0.0)
+        k0 = 2.0 * math.pi / wl
+        prefactor = 2.0 * k0 * n * (1.0 - p_e)
+        phase = prefactor * np.cumsum(eps_field) * dz
+        H_meas = H_ref * np.exp(1j * phase)
+
+        df_rec = cross_spectrum_shift(H_meas, H_ref, dz, n=n)
+        df_true = -eps * (299792458.0 / wl) * (1.0 - p_e)
+
+        # np.gradient smears the step over +-1 bin, keep a small margin
+        inside  = (z > z0 + 5 * dz) & (z < z1 - 5 * dz)
+        outside = (z < z0 - 5 * dz) | (z > z1 + 5 * dz)
+        np.testing.assert_allclose(df_rec[inside], df_true, rtol=1e-9)
+        np.testing.assert_allclose(df_rec[outside], 0.0, atol=1e3)
 
     def test_zero_shift(self):
-        rng = np.random.default_rng(31)
+        rng = np.random.default_rng(32)
         H = rng.standard_normal(256) + 1j * rng.standard_normal(256)
         df = cross_spectrum_shift(H, H, 20e-6)
         # H*conj(H) = |H|^2 is real+positive, angle ~ 0 up to float rounding
         np.testing.assert_allclose(df, 0.0, atol=0.1)
 
     def test_smooth_bins(self):
-        rng = np.random.default_rng(32)
+        # constant-amplitude reflectogram: smoothing must leave the
+        # phase ramp (and thus the recovered shift) untouched
         N = 512
         dz = 20e-6
         n = 1.4682
-        H_ref = rng.standard_normal(N) + 1j * rng.standard_normal(N)
+        p_e = 0.22
+        wl = 1550e-9
 
-        df_true = 5e8
-        tau_cell = 2.0 * n * dz / 299792458.0
-        phase = 2.0 * math.pi * df_true * tau_cell
+        H_ref = np.ones(N, dtype=np.complex128)
+
+        eps = 1e-4
+        k0 = 2.0 * math.pi / wl
+        prefactor = 2.0 * k0 * n * (1.0 - p_e)
+        phase = prefactor * np.cumsum(np.full(N, eps)) * dz
         H_meas = H_ref * np.exp(1j * phase)
 
         df_rec = cross_spectrum_shift(H_meas, H_ref, dz, n=n, smooth_bins=10)
-        # smoothing shouldn't affect a uniform shift
-        np.testing.assert_allclose(df_rec[20:-20], df_true, rtol=1e-4)
+        df_true = -eps * (299792458.0 / wl) * (1.0 - p_e)
+        np.testing.assert_allclose(df_rec[20:-20], df_true, rtol=1e-9)
 
 
 # ── Windowed sub-spectrum cross-correlation ─────────────────────────
