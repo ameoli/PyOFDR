@@ -64,7 +64,8 @@ def fft_reflectogram(beat, dz, window=None, n_pad=None):
     N = n_pad if n_pad is not None else n
     H = np.fft.fft(beat, n=N)
     n_half = N // 2
-    z = np.arange(n_half) * dz
+    # zero-padding refines the grid: bin spacing is dz * n/N, not dz
+    z = np.arange(n_half) * dz * (n / N)
     return H[:n_half], z
 
 

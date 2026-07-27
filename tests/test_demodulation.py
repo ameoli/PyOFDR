@@ -47,6 +47,18 @@ class TestFFTReflectogram:
         assert len(z2) == 1024
         assert len(z1) == 256
 
+    def test_zero_pad_preserves_peak_position(self):
+        # regression for #87: a tone at bin k must stay at z = k*dz
+        # regardless of padding (the padded bin spacing is dz*n/N)
+        n, k, dz = 512, 51, 1e-3
+        beat = np.cos(2 * np.pi * k * np.arange(n) / n)
+        H1, z1 = fft_reflectogram(beat, dz)
+        H2, z2 = fft_reflectogram(beat, dz, n_pad=2048)
+        assert z1[np.argmax(np.abs(H1))] == pytest.approx(k * dz)
+        assert z2[np.argmax(np.abs(H2))] == pytest.approx(k * dz)
+        # unpadded axis must be untouched
+        assert z1[1] - z1[0] == pytest.approx(dz)
+
     def test_hanning_window_runs(self):
         beat = np.random.default_rng(2).standard_normal(256)
         H, z = fft_reflectogram(beat, 1e-3, window="hanning")
