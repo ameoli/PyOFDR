@@ -131,6 +131,25 @@ class TestDiscreteReflectors:
             amp = np.abs(acq.fiber_profile[0, idx])
             np.testing.assert_allclose(amp, np.sqrt(ref["R"]), atol=1e-10)
 
+    def test_end_face_reflector_kept(self):
+        # regression for #84: with frac(length/dz) >= 0.5 the end face
+        # used to round to n_z and get dropped without warning
+        dz = 1e-3
+        length = 9.6 * dz         # n_z = ceil(9.6) = 10, round(9.6) = 10
+        profile = np.zeros((1, 10), dtype=np.complex128)
+        z = np.arange(10) * dz
+        inject_reflectors(profile, z, dz, [{"z": length, "R": 0.04}])
+        np.testing.assert_allclose(np.abs(profile[0, -1]), np.sqrt(0.04),
+                                    atol=1e-12)
+        assert np.all(profile[0, :-1] == 0)
+
+    def test_end_face_connector_loss_applies(self):
+        att = np.ones(10)
+        apply_connector_losses(att, 1e-3,
+                               [{"z": 9.6e-3, "R": 0.01, "loss_dB": 3.0}])
+        np.testing.assert_allclose(att[-1], 10.0 ** (-0.3))
+        assert np.all(att[:-1] == 1.0)
+
     def test_connector_loss_creates_step(self):
         """A connector with insertion loss should reduce the attenuation
         envelope beyond its position."""
@@ -351,6 +370,14 @@ class TestWeakFBG:
                 "length": 5e-3, "peak_reflectivity": 0.1}]
         out = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682)
         assert np.all(out == 0.0)
+
+    def test_end_face_fbg_kept(self):
+        # same end-face clamp as the discrete reflectors (#84)
+        nu = np.array([_C / 1550e-9])
+        fbg = [{"z": 9.6e-3, "bragg_wavelength": 1550e-9,
+                "length": 5e-3, "peak_reflectivity": 0.25}]
+        out = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682)
+        np.testing.assert_allclose(out[0], 0.5, atol=1e-12)
 
     def test_two_fbgs_accumulate(self):
         """A list of two FBGs at the same z should give 2x the signal of one."""

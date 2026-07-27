@@ -58,13 +58,19 @@ def add_ghost_reflections(
         return profile
 
     n_z = profile.shape[-1]
+
+    def _bin(r):
+        b = int(round(r["z"] / dz))
+        if b == n_z and r["z"] <= n_z * dz:
+            b = n_z - 1   # end-face clamp, must match inject_reflectors (#84)
+        return b
+
     # drop reflectors whose bin sits outside [0, n_z): they were skipped
     # by inject_reflectors so they don't actually reflect, can't seed ghosts
-    in_range = [r for r in reflectors
-                if 0 <= int(round(r["z"] / dz)) < n_z]
+    in_range = [r for r in reflectors if 0 <= _bin(r) < n_z]
     if len(in_range) < 2:
         return profile
-    bins = [int(round(r["z"] / dz)) for r in in_range]
+    bins = [_bin(r) for r in in_range]
     amps = [math.sqrt(r["R"]) for r in in_range]
     n_r = len(in_range)
 

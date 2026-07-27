@@ -52,6 +52,8 @@ def weak_fbg_signal(
 
     for fbg in fbgs:
         idx_z = int(round(fbg["z"] / dz))
+        if idx_z == n_z and fbg["z"] <= n_z * dz:
+            idx_z = n_z - 1   # end-face clamp, see #84
         if idx_z < 0 or idx_z >= n_z:
             continue
 
