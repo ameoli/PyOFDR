@@ -1,5 +1,7 @@
 """Tests for detector, balanced detector, and anti-alias filter."""
 
+import math
+
 import numpy as np
 import pytest
 
@@ -11,6 +13,7 @@ from pyofdr.source.swept_laser import SweptLaser
 from pyofdr.optics.mach_zehnder import MachZehnder
 from pyofdr.detection.detector import Detector
 from pyofdr.detection.filter import AntiAliasFilter
+from pyofdr.utils.constants import E_CHARGE
 
 
 class TestDetector:
@@ -96,24 +99,41 @@ class TestBalancedDetector:
         b = self._run(True,  shot_noise=False, thermal_nep=0, dark_current=0)
         np.testing.assert_array_equal(a.analog_main, b.analog_main)
 
-    def test_balanced_reduces_thermal_noise(self):
-        # balanced halves each noise realisation (a-b)/2 -> variance is 1/2
-        single = self._run(False, shot_noise=False,
-                            thermal_nep=1e-9, dark_current=0)
-        bal    = self._run(True, shot_noise=False,
-                            thermal_nep=1e-9, dark_current=0)
-        clean  = self._run(False, shot_noise=False,
-                            thermal_nep=0, dark_current=0)
+    def _noise_current(self, **det_kw):
+        # isolate the added noise by differencing against a noiseless run
+        noisy = self._run(True, **det_kw)
+        clean = self._run(True, shot_noise=False, thermal_nep=0, dark_current=0)
+        Z = CFG["adc"]["input_impedance"]
+        return (noisy.analog_main - clean.analog_main) / Z, noisy
 
-        noise_single = single.analog_main  - clean.analog_main
-        noise_bal    = bal.analog_main - clean.analog_main
-        assert np.var(noise_bal) < np.var(noise_single)
+    def test_balanced_shot_noise_variance(self):
+        # two PDs at eta*P/2 each -> total shot var = 2*e*(R*eta*P)*B
+        noise, acq = self._noise_current(shot_noise=True, thermal_nep=0,
+                                          dark_current=0)
+        bw = 1.0 / (2.0 * acq.dt)
+        I0 = (CFG["detection"]["responsivity"]
+              * CFG["optics"]["splitting_ratio"] * CFG["source"]["power"])
+        expected = 2.0 * E_CHARGE * I0 * bw
+        assert np.var(noise) == pytest.approx(expected, rel=0.05)
 
-    def test_balanced_shot_noise_runs(self):
-        # smoke test -- balanced shot noise uses DC current, just make sure
-        # it doesn't crash
-        bal = self._run(True, shot_noise=True, thermal_nep=0, dark_current=0)
-        assert bal.analog_main is not None
+    def test_balanced_thermal_is_single_tia(self):
+        # one TIA after the subtraction node -> sigma = R*NEP*sqrt(B),
+        # same as single-ended (no free 3 dB)
+        nep = 1e-9
+        noise, acq = self._noise_current(shot_noise=False, thermal_nep=nep,
+                                          dark_current=0)
+        bw = 1.0 / (2.0 * acq.dt)
+        sigma = CFG["detection"]["responsivity"] * nep * math.sqrt(bw)
+        assert np.std(noise) == pytest.approx(sigma, rel=0.05)
+
+    def test_balanced_dark_noise_counts_both_pds(self):
+        # dark current doesn't split at the recombiner: 2 PDs -> 2x variance
+        Id = 1e-6
+        noise, acq = self._noise_current(shot_noise=False, thermal_nep=0,
+                                          dark_current=Id)
+        bw = 1.0 / (2.0 * acq.dt)
+        expected = 4.0 * E_CHARGE * Id * bw
+        assert np.var(noise) == pytest.approx(expected, rel=0.05)
 
     def test_balanced_full_pipeline(self):
         cfg = {**CFG, "detection": {**CFG["detection"], "balanced": True}}
@@ -238,7 +258,7 @@ class TestNonlinearity:
         np.testing.assert_allclose(I_out, expected, rtol=1e-9)
 
     def test_balanced_a2_gives_linear_gain_not_harmonic(self):
-        # with matched PDs and a2 only: (I_A^2 - I_B^2) = 4*I_dc*I_beat,
+        # with matched PDs and a2 only: (I_A^2 - I_B^2) = 2*I_dc*I_beat,
         # so the nonlinear output is I_beat*(1 + 2*a2*I_dc) -- pure linear
         # scaling, no 2f component. Compare against baseline run.
         a2 = 0.5
@@ -250,7 +270,8 @@ class TestNonlinearity:
         I_bl = a_bl.analog_main[0] / Z
 
         eta   = cfg_nl["optics"]["splitting_ratio"]
-        I_dc  = cfg_nl["detection"]["responsivity"] * eta * cfg_nl["source"]["power"]
+        # per-PD DC: reference power splits 50/50 at the recombiner
+        I_dc  = 0.5 * cfg_nl["detection"]["responsivity"] * eta * cfg_nl["source"]["power"]
         gain  = 1.0 + 2.0 * a2 * I_dc
 
         # near zero-crossings the balanced subtraction loses precision, so
@@ -259,8 +280,8 @@ class TestNonlinearity:
 
     def test_balanced_a3_two_tone_imd3_matches_formula(self):
         # inject A*(cos w1 + cos w2) into the beat and check the 2f1-f2 spur
-        # amplitude equals a3 * 3*A^3 / 4 (from the I_beat^3 term in the
-        # balanced per-PD expansion).
+        # amplitude equals a3 * 3*A^3 / 16 (from the (I_beat/2)^3 term in
+        # the balanced per-PD expansion: a3*(I_A^3-I_B^3) has an I^3/4 part).
         a3 = 100.0
         cfg = {**CFG, "detection": {**CFG["detection"],
                                      "balanced": True,
@@ -288,7 +309,7 @@ class TestNonlinearity:
         idx   = int(np.argmin(np.abs(freqs - (2 * f1 - f2))))
         amp   = 2.0 * np.abs(spec[idx]) / n
 
-        expected = a3 * 3.0 * A ** 3 / 4.0
+        expected = a3 * 3.0 * A ** 3 / 16.0
         assert amp == pytest.approx(expected, rel=0.05), \
             f"IMD3 amp {amp:.3e} A vs expected {expected:.3e} A"
 

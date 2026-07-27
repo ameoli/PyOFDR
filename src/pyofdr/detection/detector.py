@@ -53,12 +53,13 @@ class Detector(PipelineStep):
         self.nl_coeffs = det["nonlinearity_coefficients"]      # [a2, a3, ...] or []
         self.seed = self.config["simulation"]["seed"]
 
-        # balanced mode needs the DC current per arm for shot noise.
-        # reference arm dominates (signal is Rayleigh backscatter, tiny)
+        # balanced mode needs the DC current per PD for shot noise.
+        # reference arm dominates (signal is Rayleigh backscatter, tiny),
+        # and the 50/50 recombiner splits it between the two PDs.
         if self.balanced:
             eta  = self.config["optics"]["splitting_ratio"]
             P    = self.config["source"]["power"]
-            self.dc_current = self.responsivity  * eta * P
+            self.dc_current = 0.5 * self.responsivity  * eta * P
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.photocurrent_main is None:
@@ -102,15 +103,16 @@ class Detector(PipelineStep):
         # is therefore not modelled for single-ended -- see dev/notes).
         if self.nl_coeffs:
             if self.balanced:
-                I_A = self.dc_current + I
-                I_B = self.dc_current - I
+                # per-PD beat is half the stored full difference
+                I_A = self.dc_current + I / 2.0
+                I_B = self.dc_current - I / 2.0
                 I_A_nl = I_A
                 I_B_nl = I_B
                 for k, a in enumerate(self.nl_coeffs, start=2):
                     if a != 0:
                         I_A_nl = I_A_nl + a * I_A ** k
                         I_B_nl = I_B_nl + a * I_B ** k
-                I = (I_A_nl - I_B_nl) / 2.0
+                I = I_A_nl - I_B_nl
             else:
                 I_lin = I
                 for k, a in enumerate(self.nl_coeffs, start=2):
@@ -119,35 +121,34 @@ class Detector(PipelineStep):
 
         if self.balanced:
             # Balanced detection: two photodiodes see complementary MZI arms.
-            # Arm A -> I_dc + I_beat,  arm B -> I_dc - I_beat
-            # Subtraction gives 2*I_beat + noiseA - noiseB.
-            # We normalize to 1x signal by halving the noise difference,
-            # net effect is sqrt(2) less noise => 3dB SNR gain.
+            # Arm A -> I_dc + I_beat/2,  arm B -> I_dc - I_beat/2.
+            # Subtraction recovers the full-difference beat the MZI already
+            # stores, plus the noise of BOTH PDs (uncorrelated, so it adds).
             rngs_shot_a   = _rngs(0)
             rngs_shot_b   = _rngs(3)
-            rngs_therm_a  = _rngs(1)
-            rngs_therm_b  = _rngs(4)
+            rngs_therm    = _rngs(1)
             rngs_dark_a   = _rngs(2)
             rngs_dark_b   = _rngs(5)
 
             if self.shot_noise_enabled:
-                # shot noise from DC current (signal arm is negligible)
+                # shot noise from the per-PD DC current (signal arm negligible)
                 sigma_shot = math.sqrt(2.0 * E_CHARGE * self.dc_current * bw)
                 sa = xp.stack([r.standard_normal(n) for r in rngs_shot_a])
                 sb = xp.stack([r.standard_normal(n) for r in rngs_shot_b])
-                I  = I + sigma_shot * (sa - sb) / 2.0
+                I  = I + sigma_shot * (sa - sb)
 
             if self.thermal_nep > 0:
+                # single TIA sits after the subtraction node
                 sigma_thermal = self.responsivity * self.thermal_nep * math.sqrt(bw)
-                ta = xp.stack([r.standard_normal(n) for r in rngs_therm_a])
-                tb = xp.stack([r.standard_normal(n) for r in rngs_therm_b])
-                I  = I + sigma_thermal * (ta - tb) / 2.0
+                th = xp.stack([r.standard_normal(n) for r in rngs_therm])
+                I  = I + sigma_thermal * th
 
             if self.dark_current > 0:
+                # dark current is per-PD and does not split
                 sigma_dark = math.sqrt(2.0 * E_CHARGE * self.dark_current  * bw)
                 da = xp.stack([r.standard_normal(n) for r in rngs_dark_a])
                 db = xp.stack([r.standard_normal(n) for r in rngs_dark_b])
-                I  = I + sigma_dark * (da - db) / 2.0
+                I  = I + sigma_dark * (da - db)
 
         else:
             # single-ended
