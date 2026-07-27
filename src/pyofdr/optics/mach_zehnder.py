@@ -122,7 +122,7 @@ class MachZehnder(PipelineStep):
             fbg_real = weak_fbg_signal(
                 self.fbg_arrays, acq.dz, n_z,
                 acq.attenuation_envelope, acq.nu_inst,
-                self.n_core, xp=xp,
+                self.n_core, linewidth=self.linewidth, xp=xp,
             )
             beat = beat + fbg_real[None, :]
 

@@ -35,13 +35,15 @@ def weak_fbg_signal(
     nu_inst: np.ndarray,
     n_core: float,
     *,
+    linewidth: float = 0.0,
     xp=np,
 ) -> np.ndarray:
     """Real beat contribution summed over all FBGs in the list.
 
     Returns a (n_t,) real array to add into the per-core beat signal.
     Each fbg is a dict with keys 'z', 'bragg_wavelength', 'length',
-    'peak_reflectivity'.
+    'peak_reflectivity'.  linewidth applies the same exp(-pi*lw*tau)
+    coherence visibility the profile reflectors get in the MZI.
     """
     n_t = nu_inst.shape[0]
     out = xp.zeros(n_t, dtype=xp.float64)
@@ -61,6 +63,10 @@ def weak_fbg_signal(
         L_g   = fbg["length"]
         R_max = fbg["peak_reflectivity"]
         att   = float(attenuation[idx_z]) if attenuation is not None else 1.0
+        if linewidth > 0:
+            # coherence roll-off at the grating's round-trip delay (#86)
+            tau = 2.0 * n_core * (idx_z * dz) / C
+            att *= math.exp(-math.pi * linewidth * tau)
 
         envelope = math.sqrt(R_max) * att * xp.sinc(
             2.0 * n_core * L_g * (nu_inst - nu_B) / C

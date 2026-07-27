@@ -379,6 +379,30 @@ class TestWeakFBG:
         out = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682)
         np.testing.assert_allclose(out[0], 0.5, atol=1e-12)
 
+    def test_linewidth_rolloff_scales_peak(self):
+        # regression for #86: FBGs must see the same exp(-pi*lw*tau)
+        # coherence visibility as the profile reflectors
+        n_core = 1.4682
+        z_g = 0.008
+        nu = np.array([_C / 1550e-9])
+        fbg = [{"z": z_g, "bragg_wavelength": 1550e-9,
+                "length": 5e-3, "peak_reflectivity": 0.25}]
+        lw = 5e9   # absurd linewidth so the factor is well away from 1
+        out0 = weak_fbg_signal(fbg, 1e-3, 10, None, nu, n_core)
+        out1 = weak_fbg_signal(fbg, 1e-3, 10, None, nu, n_core,
+                               linewidth=lw)
+        tau = 2.0 * n_core * z_g / _C
+        np.testing.assert_allclose(out1[0], out0[0] * np.exp(-np.pi * lw * tau),
+                                    rtol=1e-12)
+
+    def test_zero_linewidth_is_noop(self):
+        nu = np.linspace(_C / 1551e-9, _C / 1549e-9, 500)
+        fbg = [{"z": 5e-3, "bragg_wavelength": 1550e-9,
+                "length": 5e-3, "peak_reflectivity": 0.1}]
+        a = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682)
+        b = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682, linewidth=0.0)
+        np.testing.assert_array_equal(a, b)
+
     def test_two_fbgs_accumulate(self):
         """A list of two FBGs at the same z should give 2x the signal of one."""
         nu = np.linspace(_C / 1551e-9, _C / 1549e-9, 4000)
