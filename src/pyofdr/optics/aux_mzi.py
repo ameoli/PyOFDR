@@ -13,7 +13,8 @@ used downstream (see analysis.demodulation.kclock_resample) as a clock to
 resample the main beat onto a uniform-nu grid, canceling the sweep
 nonlinearity before the FFT.
 
-This step produces only the clean aux interferogram. Real aux detector noise /
+The aux interferogram carries the laser's own frequency noise (it sits in
+nu_inst, see #82) but no detection noise. Real aux detector noise /
 ADC quantisation on the aux channel is deferred -- in practice the aux is
 digitised at the same fs as the main and the noise on the k-clock clock
 budgets separately from the main noise.

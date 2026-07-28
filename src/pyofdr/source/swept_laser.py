@@ -1,14 +1,16 @@
 """
 Physics:
-    nu(t) = nu_start + gamma * t + a2*t^2 + a3*t^3 + ripple(t)
-    phi(t) = 2pi * integral(nu) dt + phi_noise(t)
+    nu(t) = nu_start + gamma * t + a2*t^2 + a3*t^3 + ripple(t) + nu_noise(t)
+    phi(t) = 2pi * integral(nu) dt
     E(t) = sqrt(P) * exp(j*phi(t))
 
-phi_noise combines three frequency-noise contributions:
+nu_noise combines three frequency-noise contributions:
   - white FM   (Lorentzian linewidth) -> d_phi ~ N(0, sqrt(2*pi*lw*dt))
   - flicker FM (1/f)                  -> powerlaw_psd_gaussian(beta=1)
   - random-walk FM (1/f^2)            -> powerlaw_psd_gaussian(beta=2)
-all generated in source/phase_noise.py.
+all generated in source/phase_noise.py. The noise rides on nu_inst (not
+just on the field phase) so the aux MZI and the main-MZI time-warp see
+it too -- see #82.
 
 Sweep nonlinearity (a2, a3, ripple) is opt-in: zero coefficients give
 the original linear chirp. The nonlinearity affects nu_inst and phi,
@@ -22,7 +24,7 @@ from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.pipeline import PipelineStep
-from pyofdr.source.phase_noise import colored_frequency_noise
+from pyofdr.source.phase_noise import frequency_noise
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
 from pyofdr.utils.units import wavelength_range_to_freq_range
@@ -75,21 +77,28 @@ class SweptLaser(PipelineStep):
             nu_inst = nu_inst + self.ripple_amp * xp.sin(
                 2.0 * math.pi * t / self.ripple_period)
 
-        # phase = 2pi * cumulative sum (rectangle rule integration)
-        phi = 2.0 * math.pi * xp.cumsum(nu_inst) * dt
-
-        # phase noise: white (Lorentzian) + flicker (1/f) + random walk (1/f^2)
+        # phase noise: white (Lorentzian) + flicker (1/f) + random walk (1/f^2).
+        # added to nu_inst so it propagates everywhere nu does (field phase,
+        # aux MZI, FBG envelope) instead of dying in |E|^2 -- see #82.
+        nu_noise_slow = None
         if self.linewidth > 0 or self.sigma_flicker > 0 or self.sigma_rw > 0:
             rng = self.bk.random_generator(
                 derive_seed(self.seed, component="laser", sweep=acq.sweep_index)
             )
-            phi = phi + colored_frequency_noise(
+            nu_white, nu_colored = frequency_noise(
                 n_samples, dt,
                 linewidth=self.linewidth,
                 sigma_flicker=self.sigma_flicker,
                 sigma_rw=self.sigma_rw,
                 rng=rng, xp=xp,
             )
+            nu_inst = nu_inst + nu_white + nu_colored
+            if self.sigma_flicker > 0 or self.sigma_rw > 0:
+                # only the slow part goes to the MZI warp
+                nu_noise_slow = nu_colored
+
+        # phase = 2pi * cumulative sum (rectangle rule integration)
+        phi = 2.0 * math.pi * xp.cumsum(nu_inst) * dt
 
         # power envelope: real tunable lasers droop at the edges of the
         # sweep. Parabolic model -- P(center)=P0, P(edges)=P0*10^(-edge/10).
@@ -124,6 +133,7 @@ class SweptLaser(PipelineStep):
         acq.dt = dt
         acq.n_samples = n_samples
         acq.nu_inst = nu_inst
+        acq.nu_noise = nu_noise_slow
         acq.E_source = E
 
         acq.add_log("source", n_samples=n_samples, gamma=self.gamma,

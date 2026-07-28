@@ -40,7 +40,7 @@ with `gamma = delta_nu / T_sweep` and the wavelength-to-frequency conversion `de
 ### Phase noise
 Frequency-noise PSD is a power-law sum,
     S_nu(f) = h_0 + h_-1 / f + h_-2 / f^2
-generated in `source/phase_noise.py` and added to `phi`:
+generated in `source/phase_noise.py` and added to `nu_inst` itself, so it propagates to the field phase, the aux MZI clock and the main-MZI time-warp (not just to `E_source`, whose phase the beat model never sees directly -- #82):
 
 - white FM, a Lorentzian linewidth `Delta_nu`: per-step `d_phi ~ N(0, sqrt(2 pi Delta_nu dt))`, cumulative sum is a Wiener process
 - flicker FM (1/f) and random-walk FM (1/f^2): FFT-shaped Gaussian noise (Timmer & Koenig), integrated into phase. Each parametrized by its  RMS in Hz over the sampled band.
@@ -187,7 +187,8 @@ with `P(t) = |E_source|^2` instantaneous, not averaged, so the power envelope an
 A finite Lorentzian linewidth `Delta_nu` makes the fringe visibility decay with the round-trip delay:
     V(z) = exp(-pi Delta_nu tau),   tau = 2 n z / C
 applied as a z-dependent multiplier on the profile before the IFFT, the IFFT trick carries no explicit reference arm, so the decay is folded in.
-Only the Lorentzian term is modelled; flicker / random-walk would need the full phase structure function.
+
+The coloured (flicker / random-walk) FM noise instead enters stochastically through the time-warp: for noise slow compared to tau, `phi(t) - phi(t-tau) ~ 2 pi tau nu_noise(t)`, which is exactly the ripple mechanism, so each sweep gets a real phase-noise pedestal. The white FM term is deliberately kept out of the warp -- it decorrelates sample to sample and the small-tau approximation would overshoot its pedestal by ~tau/dt -- so the Lorentzian part appears only as the ensemble-average roll-off above (no stochastic pedestal).
 
 Ref: Coupland & Pickering, J. Opt. Soc. Am. A 9, 257 (1992).
 

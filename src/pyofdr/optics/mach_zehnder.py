@@ -10,9 +10,13 @@ beat frequency wobbles in the same way. This is equivalent to a
 time-warp of the ideal linear beat signal. The warp is computed from
 the integrated frequency deviation, then applied via linear interpolation.
 
-non-Lorentzian coherence decay (flicker / random-walk phase noise)
-needs the full phase structure function; only the Lorentzian term
-is modelled here.
+Slow (flicker / random-walk) laser frequency noise rides on the sweep
+exactly like a ripple, so the same time-warp absorbs it stochastically:
+phi(t) - phi(t-tau) ~ 2*pi*tau*nu_noise(t), fine as long as the noise is
+slow compared to tau. The white/Lorentzian part is NOT warped -- it
+varies sample to sample and the small-tau approximation would overshoot
+its pedestal by ~tau/dt -- so it only enters as the deterministic
+visibility roll-off below (ensemble average, no stochastic pedestal).
 """
 
 from __future__ import annotations
@@ -56,10 +60,14 @@ class MachZehnder(PipelineStep):
             if self.D != 0 else 0.0
         )
         self._has_dispersion = (self.beta2 != 0.0)
+        self._has_slow_phase_noise = (
+            src["flicker_noise_Hz"] > 0 or src["random_walk_noise_Hz"] > 0
+        )
         self._has_nonlinearity = (
             self.nl_a2 != 0 or self.nl_a3 != 0
             or (self.ripple_amp > 0 and self.ripple_period > 0)
             or self._has_dispersion   # GVD reuses the time-warp engine
+            or self._has_slow_phase_noise   # so does coloured FM noise (#82)
         )
         self.linewidth = src["linewidth"]
         self.n_core = self.config["fiber"]["n_core"]
@@ -153,6 +161,7 @@ class MachZehnder(PipelineStep):
                      circulator_iso_dB=self.circulator.isolation_dB,
                      circulator_RL_dB=self.circulator.return_loss_dB,
                      sweep_nonlinearity=self._has_nonlinearity,
+                     phase_noise_warp=self._has_slow_phase_noise,
                      coherence_rolloff=self.linewidth > 0,
                      n_fbgs=len(self.fbg_arrays))
         return acq
@@ -196,6 +205,12 @@ class MachZehnder(PipelineStep):
             delta_nu = delta_nu + (
                 math.pi * self.beta2 * gamma**2 * C / self.n_core * tc**2
             )
+
+        # slow stochastic FM noise (flicker + random walk) from the source,
+        # same mechanism as the deterministic ripple. white FM is excluded
+        # on purpose (see module docstring).
+        if self._has_slow_phase_noise and acq.nu_noise is not None:
+            delta_nu = delta_nu + acq.nu_noise
 
         # warped time: where in the "ideal" timeline each real sample falls
         s = t + delta_nu / gamma

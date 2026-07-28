@@ -24,6 +24,47 @@ import numpy as np
 from pyofdr.utils.colorednoise import powerlaw_psd_gaussian
 
 
+def frequency_noise(
+    n_samples: int,
+    dt: float,
+    linewidth: float,
+    sigma_flicker: float,
+    sigma_rw: float,
+    rng,
+    *,
+    xp=np,
+):
+    """Return (nu_white, nu_colored) instantaneous frequency noise [Hz].
+
+    - linewidth   : Lorentzian FWHM [Hz], drives the white FM component
+    - sigma_flicker: RMS of 1/f frequency noise [Hz] over [1/T, fs/2]
+    - sigma_rw    : RMS of 1/f^2 frequency noise [Hz] over [1/T, fs/2]
+    - rng         : a numpy Generator (used for all three contributions)
+
+    nu_white integrates to the usual Wiener phase. The coloured part is
+    returned separately because downstream (MZI time-warp) can only absorb
+    noise that is slow compared to the fiber round-trip delays.
+
+    The contributions are statistically independent because
+    powerlaw_psd_gaussian draws fresh samples each time from the same rng.
+    """
+    nu_white = xp.zeros(n_samples)
+    if linewidth > 0:
+        # integrates to d_phi ~ N(0, sqrt(2*pi*lw*dt)) per sample
+        sigma_w = math.sqrt(linewidth / (2.0 * math.pi * dt))
+        nu_white = sigma_w * rng.standard_normal(n_samples)
+
+    nu_colored = xp.zeros(n_samples)
+    if sigma_flicker > 0:
+        nu_colored = nu_colored + sigma_flicker * powerlaw_psd_gaussian(
+            1.0, n_samples, random_state=rng)
+    if sigma_rw > 0:
+        nu_colored = nu_colored + sigma_rw * powerlaw_psd_gaussian(
+            2.0, n_samples, random_state=rng)
+
+    return nu_white, nu_colored
+
+
 def colored_frequency_noise(
     n_samples: int,
     dt: float,
@@ -34,33 +75,7 @@ def colored_frequency_noise(
     *,
     xp=np,
 ):
-    """Return a phase-noise array phi_noise[t] in radians.
-
-    - linewidth   : Lorentzian FWHM [Hz], drives the white FM component
-    - sigma_flicker: RMS of 1/f frequency noise [Hz] over [1/T, fs/2]
-    - sigma_rw    : RMS of 1/f^2 frequency noise [Hz] over [1/T, fs/2]
-    - rng         : a numpy Generator (used for all three contributions)
-
-    The three contributions are statistically independent because
-    powerlaw_psd_gaussian draws fresh samples each time from the same rng.
-    """
-    phi = xp.zeros(n_samples)
-
-    # white FM -> Wiener phase
-    if linewidth > 0:
-        sigma_w = math.sqrt(2.0 * math.pi * linewidth * dt)
-        phi = phi + xp.cumsum(sigma_w * rng.standard_normal(n_samples))
-
-    # flicker FM (1/f)
-    if sigma_flicker > 0:
-        nu_f = sigma_flicker * powerlaw_psd_gaussian(
-            1.0, n_samples, random_state=rng)
-        phi = phi + 2.0 * math.pi * xp.cumsum(nu_f) * dt
-
-    # random-walk FM (1/f^2)
-    if sigma_rw > 0:
-        nu_rw = sigma_rw * powerlaw_psd_gaussian(
-            2.0, n_samples, random_state=rng)
-        phi = phi + 2.0 * math.pi * xp.cumsum(nu_rw) * dt
-
-    return phi
+    """Return the integrated phase-noise array phi_noise[t] in radians."""
+    nu_w, nu_c = frequency_noise(
+        n_samples, dt, linewidth, sigma_flicker, sigma_rw, rng, xp=xp)
+    return 2.0 * math.pi * xp.cumsum(nu_w + nu_c) * dt

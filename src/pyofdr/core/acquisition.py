@@ -24,6 +24,7 @@ class Acquisition:
     # laser is shared across cores -> 1D
     E_source: np.ndarray | None = None    # (n_t,), complex optical field
     nu_inst: np.ndarray | None = None     # (n_t,), instanteneous frequency [Hz]
+    nu_noise: np.ndarray | None = None    # (n_t,), slow (1/f, 1/f^2) FM noise [Hz]
 
     strain_field: np.ndarray | None = None         # (n_z,), applied strain eps(z)
     temperature_field: np.ndarray | None = None    # (n_z,), applied dT(z) [K]

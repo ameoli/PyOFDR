@@ -14,7 +14,10 @@ from scipy.signal import welch
 
 from helpers import CFG
 from pyofdr.core.acquisition import Acquisition
-from pyofdr.source.phase_noise import colored_frequency_noise
+from pyofdr.fiber.profile import FiberGenerator
+from pyofdr.optics.aux_mzi import AuxMZI
+from pyofdr.optics.mach_zehnder import MachZehnder
+from pyofdr.source.phase_noise import colored_frequency_noise, frequency_noise
 from pyofdr.source.swept_laser import SweptLaser
 from pyofdr.utils.colorednoise import powerlaw_psd_gaussian
 
@@ -100,3 +103,87 @@ class TestSweptLaserIntegration:
         b = SweptLaser(cfg_noisy).process(Acquisition(sweep_index=0))
         # the clean field has zero phase noise, the flicker one doesn't
         assert not np.allclose(a.E_source, b.E_source)
+
+
+class TestNoiseReachesTheBeat:
+    """#82 -- stochastic phase noise used to die in |E_source|^2."""
+
+    def _beat(self, **src_extra):
+        cfg = {**CFG,
+               "source": {**CFG["source"], **src_extra},
+               "fiber": {**CFG["fiber"],
+                          "rayleigh_coefficient_dB": -200.0,
+                          "reflectors": [{"z": 0.5, "R": 0.01}]}}
+        acq = Acquisition()
+        acq = FiberGenerator(cfg).process(acq)
+        acq = SweptLaser(cfg).process(acq)
+        return MachZehnder(cfg).process(acq)
+
+    def test_flicker_changes_the_photocurrent(self):
+        clean = self._beat()
+        noisy = self._beat(flicker_noise_Hz=1e6)
+        assert not np.allclose(clean.photocurrent_main,
+                               noisy.photocurrent_main)
+
+    def test_flicker_raises_the_pedestal(self):
+        # noise floor away from the reflector peak must come up
+        clean = self._beat()
+        noisy = self._beat(flicker_noise_Hz=3e7)
+        spec_c = np.abs(np.fft.rfft(clean.photocurrent_main[0]))
+        spec_n = np.abs(np.fft.rfft(noisy.photocurrent_main[0]))
+        peak = np.argmax(spec_c)
+        # look well away from the peak (and from DC)
+        lo = peak + peak // 2
+        hi = 3 * peak
+        assert np.median(spec_n[lo:hi]) > 10.0 * np.median(spec_c[lo:hi])
+
+    def test_noise_reaches_the_aux_clock(self):
+        # the k-clock shares the laser so it must jitter too
+        cfg_clean = {**CFG,
+                     "optics": {**CFG["optics"],
+                                "aux_mzi": {"enabled": True, "delay": 50e-9}}}
+        cfg_noisy = {**cfg_clean,
+                     "source": {**cfg_clean["source"], "linewidth": 1e5}}
+        a = AuxMZI(cfg_clean).process(
+            SweptLaser(cfg_clean).process(Acquisition()))
+        b = AuxMZI(cfg_noisy).process(
+            SweptLaser(cfg_noisy).process(Acquisition()))
+        assert not np.allclose(a.aux_signal, b.aux_signal)
+
+    def test_white_fm_alone_keeps_main_beat_deterministic(self):
+        # the Lorentzian part is deliberately not warped: two sweeps with
+        # different noise realizations give the same photocurrent (only the
+        # ensemble-average visibility roll-off applies).
+        cfg = {**CFG,
+               "source": {**CFG["source"], "linewidth": 1e5},
+               "fiber": {**CFG["fiber"], "reflectors": [{"z": 0.5, "R": 0.01}]}}
+        acq0 = Acquisition(sweep_index=0)
+        acq0 = FiberGenerator(cfg).process(acq0)
+        prof = acq0.fiber_profile.copy()
+        acq0 = MachZehnder(cfg).process(SweptLaser(cfg).process(acq0))
+
+        acq1 = Acquisition(sweep_index=1)
+        acq1 = FiberGenerator(cfg).process(acq1)
+        acq1.fiber_profile = prof   # same fiber, different laser noise draw
+        acq1 = MachZehnder(cfg).process(SweptLaser(cfg).process(acq1))
+
+        np.testing.assert_allclose(acq0.photocurrent_main,
+                                   acq1.photocurrent_main)
+
+
+class TestFrequencyNoisePrimitive:
+
+    def test_white_integrates_to_wiener(self):
+        n, dt, lw = 4096, 1e-9, 1e5
+        nu_w, _ = frequency_noise(n, dt, lw, 0.0, 0.0,
+                                  rng=np.random.default_rng(3))
+        phi = 2.0 * math.pi * np.cumsum(nu_w) * dt
+        # per-sample increment must be N(0, sqrt(2 pi lw dt))
+        sigma = math.sqrt(2.0 * math.pi * lw * dt)
+        assert np.std(np.diff(phi)) == pytest.approx(sigma, rel=0.05)
+
+    def test_colored_part_is_separate(self):
+        nu_w, nu_c = frequency_noise(1024, 1e-9, 0.0, 1e5, 0.0,
+                                     rng=np.random.default_rng(4))
+        np.testing.assert_array_equal(nu_w, np.zeros(1024))
+        assert np.any(nu_c != 0.0)
