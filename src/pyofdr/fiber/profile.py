@@ -8,7 +8,7 @@ from typing import Any
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.pipeline import PipelineStep
 from pyofdr.fiber.attenuation import round_trip_attenuation, round_trip_attenuation_varying
-from pyofdr.fiber.bends import bend_loss_dB
+from pyofdr.fiber.bends import bend_loss_total_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.reflectors import apply_connector_losses, inject_reflectors
@@ -175,8 +175,7 @@ class FiberGenerator(PipelineStep):
                 seg_len_m = bend["end"] - bend["start"]
                 if seg_len_m <= 0:
                     continue
-                total_dB = bend_loss_dB(bend["radius"], bend["turns"],
-                                         bend["A_dB_per_turn"], bend["R_c"])
+                total_dB = bend_loss_total_dB(bend)
                 extra_dB_km = total_dB / (seg_len_m / 1000.0)
                 mask = (z >= bend["start"]) & (z < bend["end"])
                 alpha_z = xp.where(mask, alpha_z + extra_dB_km, alpha_z)

@@ -77,16 +77,20 @@ Nested blocks (all optional, default `None`):
 
 ### fiber.bends[]
 
-Macrobending. The default `A_dB_per_turn`/`R_c` are SMF-28 ballparks
-(see #36); override for other fibers.
+Macrobending. Two models per bend (#36, #90): `exponential` (default,
+Marcuse-style `A*exp(-R/R_c)`, SMF-28 ballparks) or `tabulated`
+(interpolate your datasheet / measured points, log-linear in R; radii
+outside the table clamp to the edge with a warning).
 
 | field | type | default | description |
 | --- | --- | --- | --- |
 | `start`, `end` | length | -- | segment bounds |
 | `radius` | length > 0 | -- | bend radius |
 | `turns` | float > 0 | -- | number of turns over the segment |
-| `A_dB_per_turn` | float > 0 | 100.0 | empirical prefactor |
-| `R_c` | length > 0 | 5e-3 | critical radius |
+| `model` | `exponential` / `tabulated` | `exponential` | loss model |
+| `A_dB_per_turn` | float > 0 | 100.0 | empirical prefactor (exponential) |
+| `R_c` | length > 0 | 5e-3 | critical radius (exponential) |
+| `table[]` | `{radius, dB_per_turn}`, >= 2 | -- | loss points (tabulated) |
 
 ### fiber.reflectors[]
 

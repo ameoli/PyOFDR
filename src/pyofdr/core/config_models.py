@@ -117,19 +117,35 @@ class IndexFluctuations(_Strict):
     correlation_length: Length = Field(..., gt=0)        # OU corr length [m]
 
 
+class BendTablePoint(_Strict):
+    radius:      Length = Field(..., gt=0)
+    dB_per_turn: float  = Field(..., gt=0)
+
+
 class BendSegment(_Strict):
     start:  Length
     end:    Length
     radius: Length = Field(..., gt=0)
     turns:  float  = Field(..., gt=0)
-    # SMF-28 ballparks; override for other fibers
+    model:  Literal["exponential", "tabulated"] = "exponential"
+    # exponential: SMF-28 ballparks; override for other fibers
     A_dB_per_turn: float = Field(100.0, gt=0)
     R_c:           Length = Field(5e-3,  gt=0)
+    # tabulated: measured / datasheet points, needs at least 2
+    table: list[BendTablePoint] | None = None
 
     @model_validator(mode="after")
     def _check_order(self):
         if self.end <= self.start:
             raise ValueError(f"bend segment: end ({self.end}) must be > start ({self.start})")
+        if self.model == "tabulated":
+            if self.table is None or len(self.table) < 2:
+                raise ValueError("tabulated bend needs a table with at least 2 points")
+            radii = [p.radius for p in self.table]
+            if len(set(radii)) != len(radii):
+                raise ValueError("bend table has duplicate radii")
+        elif self.table is not None:
+            raise ValueError("bend table given but model is 'exponential'")
         return self
 
 
