@@ -91,8 +91,13 @@ class CoxShearLag:
             half   = 0.5 * (z1 - z0)
             centre = 0.5 * (z0 + z1)
             mask = (z >= z0) & (z <= z1)
-            # s is distance from segment centre, only meaningful inside
-            s = z - centre
-            local = val * (1.0 - xp.cosh(b * s) / math.cosh(b * half))
+            # distance from segment centre, clipped to the segment so points
+            # far outside don't blow up the exponentials below
+            s = xp.minimum(xp.abs(z - centre), half)
+            # cosh(b s)/cosh(b half) written with exponents <= 0: the naive
+            # ratio overflows for stiff bonds (beta*half > ~710, see #85)
+            ratio = (xp.exp(b * (s - half)) + xp.exp(-b * (s + half))) \
+                / (1.0 + math.exp(-2.0 * b * half))
+            local = val * (1.0 - ratio)
             eps = xp.where(mask, eps + local, eps)
         return eps

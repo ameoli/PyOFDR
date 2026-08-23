@@ -1,5 +1,7 @@
 """Tests for strain transfer models and strain perturbation."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -79,6 +81,30 @@ class TestStrainTransfer:
         eps = CoxShearLag(beta=30.0).apply(segs, z)
         outside = (z < 0.3) | (z > 0.6)
         np.testing.assert_array_equal(eps[outside], 0.0)
+
+    def test_cox_stiff_bond_no_overflow(self):
+        # bare bonded fiber has beta ~2000/m, used to overflow (#85)
+        z = np.linspace(0, 10, 2001)
+        segs = [{"start": 1.0, "end": 2.0, "epsilon": 1e-4}]
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            eps = CoxShearLag(beta=2000.0).apply(segs, z)
+        assert np.all(np.isfinite(eps))
+        ic = int(np.argmin(np.abs(z - 1.5)))
+        np.testing.assert_allclose(eps[ic], 1e-4, rtol=1e-6)
+        outside = (z < 1.0) | (z > 2.0)
+        np.testing.assert_array_equal(eps[outside], 0.0)
+
+    def test_cox_stable_form_matches_naive(self):
+        # rewritten ratio must equal cosh(b s)/cosh(b half) where the
+        # naive form still evaluates fine
+        z = np.linspace(0, 1, 1001)
+        segs = [{"start": 0.2, "end": 0.5, "epsilon": 1e-4}]
+        eps = CoxShearLag(beta=40.0).apply(segs, z)
+        inside = (z >= 0.2) & (z <= 0.5)
+        s = z[inside] - 0.35
+        naive = 1e-4 * (1.0 - np.cosh(40.0 * s) / np.cosh(40.0 * 0.15))
+        np.testing.assert_allclose(eps[inside], naive, atol=1e-18)
 
     def test_cox_invalid_beta(self):
         with pytest.raises(ValueError):
