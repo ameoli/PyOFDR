@@ -135,7 +135,9 @@ class ADC(PipelineStep):
             digital = xp.floor(digital + offset).astype(xp.int32)
             digital = xp.clip(digital, -half, half - 1)
 
-        acq.digital_main = digital.astype(xp.int16)
+        # int16 would silently wrap the codes for bits > 16 (#89)
+        out_dtype = xp.int16 if self.bits <= 16 else xp.int32
+        acq.digital_main = digital.astype(out_dtype)
 
         acq.add_log("adc", bits=self.bits, enob=self.enob,
                      jitter_rms_ps=self.jitter_rms * 1e12,

@@ -33,6 +33,16 @@ class TestADC:
         assert np.all(acq.digital_main >= -32768)
         assert np.all(acq.digital_main <= 32767)
 
+    def test_wide_adc_does_not_wrap(self):
+        # 18-bit code 117964 used to come out as -13108 through int16 (#89)
+        cfg = {**CFG, "adc": {**CFG["adc"], "bits": 18}}
+        adc = ADC(cfg)
+        acq = Acquisition()
+        acq.analog_main = np.full((1, 64), 0.9 * adc.v_max)
+        out = adc.process(acq)
+        assert out.digital_main.dtype == np.int32
+        assert np.all(out.digital_main == 117964)
+
 
 class TestADCJitter:
 

@@ -10,7 +10,7 @@ Layout:
     /fiber/attenuation      round-trip attenuation envelope
     /fiber/strain_field     applied strain eps(z), if present
     /fiber/temperature_field applied dT(z) [K], if present
-    /sweeps/0000/digital_main   (n_cores, n_t) int16
+    /sweeps/0000/digital_main   (n_cores, n_t) int16 (int32 when adc.bits > 16)
     /sweeps/0000/analog_main    (n_cores, n_t) float32
     /sweeps/0000/aux_signal     (n_t,) float32, present iff aux MZI enabled
     /sweeps/0000/log            JSON string
