@@ -41,6 +41,24 @@ class TestMeasureResolution:
         r = measure_resolution(H, z, 0.01)
         assert abs(r["peak_z"] - 0.01) < 0.001
 
+    def test_gaussian_width_matches_analytic(self):
+        # -6 dB full width of a gaussian: 2*w*sqrt(-2*ln(10^-0.3))
+        dz = 20e-6
+        w = 3
+        H, z = self._make_reflector(1000, dz, 0.01, width_bins=w)
+        r = measure_resolution(H, z, 0.01)
+        expected = 2 * w * np.sqrt(-2 * np.log(10 ** (-6 / 20))) * dz
+        assert r["resolution"] == pytest.approx(expected, rel=0.02)
+
+    def test_on_bin_delta_not_floored_at_two_bins(self):
+        # regression for #88: single-bin peak used to always read 2*dz
+        dz = 20e-6
+        z = np.arange(1000) * dz
+        amp = np.ones(1000) * 1e-3
+        amp[500] = 1.0
+        r = measure_resolution(amp.astype(np.complex128), z, z[500])
+        assert r["resolution"] < 1.5 * dz
+
 
 class TestMeasureDynamicRange:
 

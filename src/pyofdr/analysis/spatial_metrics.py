@@ -55,7 +55,22 @@ def measure_resolution(H, z, peak_z, level_dB=-6.0):
     while i_right < len(amp_dB) - 1 and amp_dB[i_right] > threshold:
         i_right += 1
 
-    resolution = z[i_right] - z[i_left]
+    # interpolate the crossing between the straddling bins, otherwise the
+    # width snaps to whole bins (2*dz floor for an on-bin reflector, #88)
+    amp = np.abs(H)
+    thr_lin = amp[i_peak] * 10.0 ** (level_dB / 20.0)
+    if amp[i_left] <= thr_lin:
+        f = (thr_lin - amp[i_left]) / (amp[i_left + 1] - amp[i_left])
+        z_left = z[i_left] + f * (z[i_left + 1] - z[i_left])
+    else:
+        z_left = z[i_left]   # peak runs into the array edge
+    if amp[i_right] <= thr_lin:
+        f = (thr_lin - amp[i_right]) / (amp[i_right - 1] - amp[i_right])
+        z_right = z[i_right] + f * (z[i_right - 1] - z[i_right])
+    else:
+        z_right = z[i_right]
+
+    resolution = z_right - z_left
 
     return {
         "resolution": resolution,
