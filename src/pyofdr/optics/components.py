@@ -32,7 +32,7 @@ class Circulator:
 
     @property
     def return_loss(self):
-        """Reflected power fraction (linear)."""
+        """Back-reflected field amplitude (linear)."""
         return 10 ** (-self.return_loss_dB / 20.0)
 
     @property

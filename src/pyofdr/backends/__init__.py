@@ -27,7 +27,7 @@ from scipy.signal import butter, sosfilt
 
 
 class NumpyBackend:
-    """CPU backend, default for V0.1."""
+    """CPU backend, the default."""
 
     name = "numpy"
 

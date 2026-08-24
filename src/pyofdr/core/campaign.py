@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pyofdr import __version__
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config import compute_derived
 logger = logging.getLogger(__name__)
@@ -13,8 +14,8 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
     Noise sources (laser phase noise, RIN, detector noise, ADC jitter)
     are independent for each sweep.
 
-    Paramters
-    ---------
+    Parameters
+    ----------
     cfg : dict
         Config dict from load_config.
 
@@ -37,8 +38,8 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
     derived = compute_derived(cfg)
     n_sweeps = cfg.get("simulation", {}).get("n_sweeps", 1)
 
-    logger.info("PyOFDR v0.1 -- starting simulation (%d sweep%s)",
-                n_sweeps, "s" if n_sweeps > 1 else "")
+    logger.info("PyOFDR v%s -- starting simulation (%d sweep%s)",
+                __version__, n_sweeps, "s" if n_sweeps > 1 else "")
     logger.info("  dz = %.4f mm, N_z = %d, N_t = %d",
                 derived["dz"] * 1e3, derived["n_z"], derived["n_t"])
 
