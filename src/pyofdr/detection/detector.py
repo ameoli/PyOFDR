@@ -53,13 +53,13 @@ class Detector(PipelineStep):
         self.nl_coeffs = det["nonlinearity_coefficients"]      # [a2, a3, ...] or []
         self.seed = self.config["simulation"]["seed"]
 
-        # balanced mode needs the DC current per PD for shot noise.
-        # reference arm dominates (signal is Rayleigh backscatter, tiny),
-        # and the 50/50 recombiner splits it between the two PDs.
-        if self.balanced:
-            eta  = self.config["optics"]["splitting_ratio"]
-            P    = self.config["source"]["power"]
-            self.dc_current = 0.5 * self.responsivity  * eta * P
+        # DC current per PD for shot noise. reference arm dominates
+        # (signal is Rayleigh backscatter, tiny) and the 50/50 recombiner
+        # splits it between the two outputs; a single-ended PD sits on one
+        # of them, so the same value serves both modes (#91).
+        eta  = self.config["optics"]["splitting_ratio"]
+        P    = self.config["source"]["power"]
+        self.dc_current = 0.5 * self.responsivity  * eta * P
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.photocurrent_main is None:
@@ -156,9 +156,11 @@ class Detector(PipelineStep):
             rngs_therm = _rngs(1)
             rngs_dark  = _rngs(2)
 
-            # shot noise: sigma^2 = 2 * e * |I| * B
+            # shot noise: sigma^2 = 2*e*(I_dc + I)*B. The reference-arm DC
+            # dominates; the beat only modulates it. The signal path itself
+            # stays AC-coupled -- I_dc is noise bookkeeping only (#91).
             if self.shot_noise_enabled:
-                shot_var = 2.0 * E_CHARGE * xp.abs(I) * bw
+                shot_var = 2.0 * E_CHARGE * xp.maximum(self.dc_current + I, 0.0) * bw
                 shot = xp.stack([r.standard_normal(n) for r in rngs_shot])
                 I = I + xp.sqrt(shot_var) * shot
 

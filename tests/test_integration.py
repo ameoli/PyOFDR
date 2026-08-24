@@ -15,7 +15,11 @@ class TestEndToEnd:
 
     def test_reflectogram_has_energy_in_fiber_region(self):
         """The FFT should show most energy in the first N_z bins."""
-        acq = run_campaign(CFG)[-1]
+        # noise off: with realistic shot noise (#91) the white floor spread
+        # over the full band eats into the ratio -- this test is about the
+        # signal geometry, not the noise
+        cfg = {**CFG, "detection": {**CFG["detection"], "shot_noise": False}}
+        acq = run_campaign(cfg)[-1]
         # take core 0
         spectrum = np.fft.fft(acq.digital_main[0].astype(np.float64))
         n_half = len(spectrum) // 2

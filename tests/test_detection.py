@@ -47,12 +47,14 @@ class TestDetector:
         np.testing.assert_array_equal(a.analog_main, b.analog_main)
 
     def test_toggling_shot_noise_does_not_disturb_thermal_stream(self):
-        # regression for #22: each noise type has its own rng now, so flipping
-        # shot_noise off must not reshuffle the thermal samples.
-        def thermal_only(shot_flag):
+        # regression for #22: each noise type has its own rng, so flipping
+        # shot_noise must not reshuffle the thermal samples. Since #91 the
+        # shot draw is nonzero even on a dead input (reference-arm DC), so
+        # isolate the thermal component by differencing.
+        def run(shot_flag, nep):
             cfg = {**CFG, "detection": {"responsivity": 1.0,
                                          "shot_noise": shot_flag,
-                                         "thermal_nep": 1e-11,
+                                         "thermal_nep": nep,
                                          "dark_current": 0}}
             acq = Acquisition()
             acq = FiberGenerator(cfg).process(acq)
@@ -61,7 +63,11 @@ class TestDetector:
             acq.photocurrent_main = np.zeros_like(acq.photocurrent_main)
             return Detector(cfg).process(acq).analog_main
 
-        np.testing.assert_array_equal(thermal_only(False), thermal_only(True))
+        nep = 1e-11
+        thermal_alone = run(False, nep)
+        # same seed -> identical shot draw in both runs, cancels exactly
+        with_shot = run(True, nep) - run(True, 0)
+        np.testing.assert_allclose(with_shot, thermal_alone, atol=1e-15)
 
     def test_dark_current_adds_noise_even_with_zero_signal(self):
         """Dark current noise should be present even if photocurrent is zero."""
@@ -115,6 +121,28 @@ class TestBalancedDetector:
               * CFG["optics"]["splitting_ratio"] * CFG["source"]["power"])
         expected = 2.0 * E_CHARGE * I0 * bw
         assert np.var(noise) == pytest.approx(expected, rel=0.05)
+
+    def test_single_ended_shot_noise_variance(self):
+        # one PD at eta*P/2 -> shot var = 2*e*(R*eta*P/2)*B  (#91)
+        noisy = self._run(False, shot_noise=True, thermal_nep=0, dark_current=0)
+        clean = self._run(False, shot_noise=False, thermal_nep=0, dark_current=0)
+        Z = CFG["adc"]["input_impedance"]
+        noise = (noisy.analog_main - clean.analog_main) / Z
+        bw = 1.0 / (2.0 * noisy.dt)
+        I_dc = 0.5 * (CFG["detection"]["responsivity"]
+                      * CFG["optics"]["splitting_ratio"] * CFG["source"]["power"])
+        expected = 2.0 * E_CHARGE * I_dc * bw
+        assert np.var(noise) == pytest.approx(expected, rel=0.05)
+
+    def test_balanced_shot_is_twice_single_ended(self):
+        # two PDs vs one -> 2x the shot variance
+        def shot_var(balanced):
+            noisy = self._run(balanced, shot_noise=True, thermal_nep=0,
+                              dark_current=0)
+            clean = self._run(balanced, shot_noise=False, thermal_nep=0,
+                              dark_current=0)
+            return np.var(noisy.analog_main - clean.analog_main)
+        assert shot_var(True) == pytest.approx(2.0 * shot_var(False), rel=0.1)
 
     def test_balanced_thermal_is_single_tia(self):
         # one TIA after the subtraction node -> sigma = R*NEP*sqrt(B),
