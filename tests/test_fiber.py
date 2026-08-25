@@ -102,12 +102,13 @@ class TestDiscreteReflectors:
         power_bare = np.abs(acq_bare.fiber_profile[0, idx]) ** 2
         assert power_ref > power_bare
 
-    def test_reflector_outside_fiber_ignored(self):
-        """Reflector beyond the fiber length should not crash."""
+    def test_reflector_outside_fiber_rejected(self):
+        """Reflector beyond the fiber length fails validation (#92).
+        Used to be silently dropped."""
         cfg = {**CFG, "fiber": {**CFG["fiber"],
                "reflectors": [{"z": 999.0, "R": 0.01}]}}
-        acq = FiberGenerator(cfg).process(Acquisition())
-        assert acq.fiber_profile is not None
+        with pytest.raises(ValueError, match="beyond fiber.length"):
+            FiberGenerator(cfg)
 
     def test_reflector_amplitude(self):
         """Check that injected amplitude matches sqrt(R)."""
@@ -248,20 +249,16 @@ class TestMultipleScattering:
         acq = FiberGenerator(cfg).process(Acquisition())
         assert acq.fiber_profile.shape[-1] == len(acq.z)
 
-    def test_out_of_range_reflector_ignored(self):
-        # a reflector past the fiber end is dropped by inject_reflectors;
-        # it must also be ignored as a ghost source, otherwise it would
-        # add a spurious peak at some real bin
+    def test_out_of_range_reflector_rejected(self):
+        # used to be dropped by inject_reflectors (and had to be ignored as
+        # a ghost source too); now the config validator refuses it outright
         cfg = {**CFG, "fiber": {**CFG["fiber"],
                "rayleigh_coefficient_dB": -300,
                "reflectors": [{"z": 0.0, "R": 0.04},
                               {"z": 999.0, "R": 0.04}],
                "multiple_scattering": {"max_order": 2}}}
-        acq = FiberGenerator(cfg).process(Acquisition())
-        # only 1 in-range reflector left -> no order >= 2 paths possible
-        # entire profile should be ~0 (Rayleigh suppressed), peak only at z=0
-        amp_anywhere_else = np.abs(acq.fiber_profile[0, 1:]).max()
-        assert amp_anywhere_else < 1e-9
+        with pytest.raises(ValueError, match="beyond fiber.length"):
+            FiberGenerator(cfg)
 
     def test_three_reflector_amplitudes(self):
         """End-to-end physics check: three known reflectors, verify all

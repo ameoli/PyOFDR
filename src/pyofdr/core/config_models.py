@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Annotated, Literal
 
 from pint import UnitRegistry
@@ -409,4 +410,71 @@ class RootConfig(_Strict):
                 f"max beat freq {f_beat_max*1e-6:.1f} MHz "
                 f"exceeds Nyquist {f_nyq*1e-6:.1f} MHz"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _check_features_inside_fiber(self):
+        # a segment past the fiber end used to just give an all-False mask
+        # (silent no-op), see #92
+        L = self.fiber.length
+        seg_lists = [
+            ("fiber.rayleigh_segments",    self.fiber.rayleigh_segments),
+            ("fiber.attenuation_segments", self.fiber.attenuation_segments),
+            ("fiber.bends",                self.fiber.bends),
+            ("fiber.index_segments",       self.fiber.index_segments),
+            ("strain.segments",            self.strain.segments),
+            ("temperature.segments",       self.temperature.segments),
+        ]
+        for name, segs in seg_lists:
+            for i, s in enumerate(segs):
+                if s.end > L:
+                    raise ValueError(
+                        f"{name}[{i}] ends at {s.end} m, "
+                        f"beyond fiber.length ({L} m)"
+                    )
+        for i, r in enumerate(self.fiber.reflectors):
+            if r.z > L:
+                raise ValueError(
+                    f"fiber.reflectors[{i}] at z={r.z} m is "
+                    f"beyond fiber.length ({L} m)"
+                )
+        for i, g in enumerate(self.fiber.fbg_arrays):
+            if g.z > L:
+                raise ValueError(
+                    f"fiber.fbg_arrays[{i}] at z={g.z} m is "
+                    f"beyond fiber.length ({L} m)"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _check_aux_mzi_delay(self):
+        # same bounds AuxMZI.process enforces at runtime, but caught here
+        # so `pyofdr validate` sees them (#92)
+        aux = self.optics.aux_mzi
+        if not aux.enabled:
+            return self
+        fs = self.adc.sample_rate
+        n_tau = int(round(aux.delay * fs))
+        n_t = int(math.ceil(self.source.sweep_duration * fs))
+        if n_tau < 2:
+            raise ValueError(
+                f"optics.aux_mzi.delay ({aux.delay*1e9:.2f} ns) is too short "
+                f"at adc.sample_rate={fs*1e-6:.1f} MHz (n_tau={n_tau}, need >= 2)"
+            )
+        if n_tau >= n_t:
+            raise ValueError(
+                f"optics.aux_mzi.delay ({aux.delay*1e9:.2f} ns) "
+                f"exceeds the sweep duration"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_backend_available(self):
+        # the Literal catches typos; this catches names that are valid but
+        # not wired up yet (cupy/jax), which used to die mid-pipeline
+        from pyofdr.backends import get_backend
+        try:
+            get_backend(self.simulation.backend)
+        except NotImplementedError as e:
+            raise ValueError(f"simulation.backend '{self.simulation.backend}': {e}") from e
         return self

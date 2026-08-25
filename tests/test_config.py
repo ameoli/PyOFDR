@@ -41,6 +41,45 @@ class TestConfigValidation:
             )
 
 
+class TestCrossBlockChecks:
+    """Checks that span config sections (#92). Default fiber is 10 m."""
+
+    def test_strain_segment_past_fiber_end_is_rejected(self):
+        with pytest.raises(ValueError, match="beyond fiber.length"):
+            RootConfig(strain={"segments": [{"start": 8.0, "end": 15.0}]})
+
+    def test_segment_fully_outside_fiber_is_rejected(self):
+        # this one used to produce an all-False mask, i.e. nothing at all
+        with pytest.raises(ValueError, match="beyond fiber.length"):
+            RootConfig(fiber={"attenuation_segments": [
+                {"start": 20.0, "end": 30.0, "attenuation_dB_per_km": 1.0}]})
+
+    def test_segment_ending_at_fiber_end_is_fine(self):
+        RootConfig(strain={"segments": [{"start": 8.0, "end": 10.0}]})
+
+    def test_reflector_past_fiber_end_is_rejected(self):
+        with pytest.raises(ValueError, match="beyond fiber.length"):
+            RootConfig(fiber={"reflectors": [{"z": 12.0, "R": 0.01}]})
+
+    def test_reflector_at_fiber_end_is_fine(self):
+        # end-face reflector, the classic use
+        RootConfig(fiber={"reflectors": [{"z": 10.0, "R": 0.01}]})
+
+    def test_aux_delay_too_short_fails_at_validate_time(self):
+        # 1 ps at 200 MHz -> n_tau = 0. Used to only blow up in AuxMZI.process
+        with pytest.raises(ValueError, match="too short"):
+            RootConfig(optics={"aux_mzi": {"enabled": True, "delay": 1e-12}})
+
+    def test_aux_delay_longer_than_sweep_fails_at_validate_time(self):
+        with pytest.raises(ValueError, match="exceeds the sweep"):
+            RootConfig(optics={"aux_mzi": {"enabled": True, "delay": 1.0}})
+
+    def test_unimplemented_backend_fails_at_validate_time(self):
+        # cupy is in the Literal but get_backend raises NotImplementedError
+        with pytest.raises(ValueError, match="later release"):
+            RootConfig(simulation={"backend": "cupy"})
+
+
 class TestUnitParsing:
 
     def test_wavelength_in_nm(self):
