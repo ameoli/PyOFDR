@@ -263,8 +263,8 @@ class TestNonlinearity:
         b, _ = self._run([0.0, 0.0])
         np.testing.assert_array_equal(a.analog_main, b.analog_main)
 
-    def test_single_ended_a2_squares_input(self):
-        # DC input in photocurrent_main -> I_out = I_in + a2*I_in^2
+    def test_single_ended_a2_expands_around_dc(self):
+        # DC input: the PD sits at I_dc + I_in, static part subtracted (#98)
         a2 = 0.5
         cfg = {**CFG, "detection": {**CFG["detection"],
                                      "balanced": False,
@@ -282,8 +282,27 @@ class TestNonlinearity:
         Z = cfg["adc"]["input_impedance"]
         I_out = acq.analog_main[0] / Z
         I_in  = 1.0 * P0
-        expected = I_in + a2 * I_in ** 2
+        eta   = cfg["optics"]["splitting_ratio"]
+        I_dc  = 0.5 * cfg["detection"]["responsivity"] * eta * cfg["source"]["power"]
+        expected = I_in + a2 * ((I_dc + I_in) ** 2 - I_dc ** 2)
         np.testing.assert_allclose(I_out, expected, rtol=1e-9)
+
+    def test_single_ended_a2_keeps_dc_beat_mixing(self):
+        # a2 only: single-ended and balanced share the 2*a2*I_dc*I_beat
+        # mixing term, single-ended adds the plain a2*I_beat^2 harmonic
+        # on top (balanced cancels it between the matched PDs). So
+        # I_se = I_bal + a2*I_clean^2 exactly. (#98)
+        a2 = 0.5
+        se, cfg  = self._run([a2], balanced=False)
+        bal, _   = self._run([a2], balanced=True)
+        clean, _ = self._run([],   balanced=False)
+
+        Z    = cfg["adc"]["input_impedance"]
+        I_se = se.analog_main / Z
+        I_bl = bal.analog_main / Z
+        I_cl = clean.analog_main / Z
+        np.testing.assert_allclose(I_se, I_bl + a2 * I_cl ** 2,
+                                   rtol=1e-9, atol=1e-18)
 
     def test_balanced_a2_gives_linear_gain_not_harmonic(self):
         # with matched PDs and a2 only: (I_A^2 - I_B^2) = 2*I_dc*I_beat,

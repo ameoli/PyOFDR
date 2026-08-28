@@ -97,10 +97,10 @@ class Detector(PipelineStep):
         # reconstruct per-PD currents as I_dc +- I_beat, apply the polynomial
         # to each (matched PDs), and subtract -- this keeps the DC*beat
         # mixing that would otherwise be absent from a polynomial applied
-        # to the already-differenced signal. In single-ended mode we apply
-        # the polynomial to the combined current directly (note: the MZI
-        # output currently carries only the AC beat; the DC*beat mixing
-        # is therefore not modelled for single-ended -- see dev/notes).
+        # to the already-differenced signal. Single-ended: the one PD sits
+        # at I_dc + I_beat, so expand the polynomial there and drop the
+        # static part (signal path is AC-coupled, #91) -- the mixing terms
+        # survive just like in the balanced case (#98).
         if self.nl_coeffs:
             if self.balanced:
                 # per-PD beat is half the stored full difference
@@ -114,10 +114,10 @@ class Detector(PipelineStep):
                         I_B_nl = I_B_nl + a * I_B ** k
                 I = I_A_nl - I_B_nl
             else:
-                I_lin = I
+                I_pd = self.dc_current + I
                 for k, a in enumerate(self.nl_coeffs, start=2):
                     if a != 0:
-                        I = I + a * I_lin ** k
+                        I = I + a * (I_pd ** k - self.dc_current ** k)
 
         if self.balanced:
             # Balanced detection: two photodiodes see complementary MZI arms.
