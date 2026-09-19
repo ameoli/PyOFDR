@@ -1,12 +1,16 @@
 """Tests for the analytical budget calculator (see #43)."""
 
 import math
+from copy import deepcopy
 
+import numpy as np
 import pytest
+from scipy.signal import butter, sosfilt
 
 from helpers import CFG, REPO_ROOT
 from pyofdr.analysis.budget import compute_budget, print_budget
 from pyofdr.core.config import load_config
+from pyofdr.utils.constants import C
 
 
 class TestBudget:
@@ -53,22 +57,105 @@ class TestBudget:
 
     def test_total_noise_is_rss(self):
         cfg = load_config(REPO_ROOT / "configs" / "ofdr_basic.yaml")
+        cfg["adc"]["enob"] = 12.0
         b = compute_budget(cfg)
         rss = math.sqrt(b["sigma_shot"]**2 + b["sigma_thermal"]**2
                         + b["sigma_dark"]**2 + b["sigma_rin"]**2
-                        + b["sigma_quant"]**2)
+                        + b["sigma_quant"]**2 + b["sigma_adc_extra"]**2)
         assert b["sigma_total"] == pytest.approx(rss)
 
-    def test_rin_adds_to_noise(self):
+    def test_rin_adds_to_noise_with_known_beat(self):
         cfg = dict(CFG)
         b_no_rin = compute_budget(cfg)
         cfg2 = dict(CFG)
         cfg2["source"] = dict(CFG["source"])
         cfg2["source"]["rin_dB_per_Hz"] = -140.0
-        b_rin = compute_budget(cfg2)
+        b_rin = compute_budget(cfg2, beat_rms_current=1e-4)
         assert b_no_rin["sigma_rin"] == 0.0
         assert b_rin["sigma_rin"] > 0.0
         assert b_rin["sigma_total"] > b_no_rin["sigma_total"]
+
+    def test_rin_requires_beat_rms_instead_of_dc_current(self, capsys):
+        cfg = deepcopy(CFG)
+        cfg["source"]["rin_dB_per_Hz"] = -140.0
+        b = compute_budget(cfg)
+        for key in ("sigma_rin", "sigma_analog", "sigma_total", "nep_total",
+                    "dynamic_range_dB"):
+            assert math.isnan(b[key])
+        assert math.isfinite(b["sigma_receiver"])
+        print_budget(cfg)
+        assert "supply beat_rms_current" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("balanced", [False, True])
+    def test_rin_is_multiplicative_in_both_modes(self, balanced):
+        cfg = deepcopy(CFG)
+        cfg["detection"]["balanced"] = balanced
+        cfg["source"]["rin_dB_per_Hz"] = -120.0
+        zero = compute_budget(cfg, beat_rms_current=0.0)
+        weak = compute_budget(cfg, beat_rms_current=1e-5)
+        strong = compute_budget(cfg, beat_rms_current=2e-5)
+        assert zero["sigma_rin"] == 0.0
+        assert strong["sigma_rin"] == pytest.approx(2 * weak["sigma_rin"])
+
+    @pytest.mark.parametrize("rms", [-1.0, math.nan, math.inf])
+    def test_invalid_beat_rms_rejected(self, rms):
+        with pytest.raises(ValueError, match="beat_rms_current"):
+            compute_budget(CFG, beat_rms_current=rms)
+
+    def test_receiver_modes_and_shot_switch(self):
+        cfg = deepcopy(CFG)
+        single = compute_budget(cfg)
+        cfg["detection"]["balanced"] = True
+        balanced = compute_budget(cfg)
+        assert single["I_dc_pd"] == pytest.approx(single["I_dc_ref"] / 2)
+        assert balanced["I_dc_pd"] == single["I_dc_pd"]
+        for noise in ("sigma_shot", "sigma_dark"):
+            assert balanced[noise] == pytest.approx(math.sqrt(2) * single[noise])
+        assert balanced["sigma_thermal"] == single["sigma_thermal"]
+        cfg["detection"]["shot_noise"] = False
+        assert compute_budget(cfg)["sigma_shot"] == 0.0
+
+    @pytest.mark.parametrize("order, fraction", [(1, 0.001), (1, 0.25),
+                                                (4, 0.1), (8, 0.8)])
+    def test_noise_bandwidth_matches_filter_impulse_energy(self, order, fraction):
+        # Parseval: integral_0^Nyquist |H|^2 df = fs/2 * sum(h[n]^2).
+        # This tests the analytical integration independently of its formula.
+        cfg = deepcopy(CFG)
+        fs = cfg["adc"]["sample_rate"]
+        cfg["detection"].update(bandwidth=fraction * fs, filter_order=order)
+        b = compute_budget(cfg)
+        cutoff = min(fraction * fs, 0.99 * fs / 2)
+        impulse = np.zeros(100_000)
+        impulse[0] = 1.0
+        h = sosfilt(butter(order, cutoff / (fs / 2), output="sos"), impulse)
+        assert b["filter_cutoff"] == cutoff
+        assert b["noise_bandwidth"] == pytest.approx(fs / 2 * np.sum(h * h), rel=1e-7)
+        assert 0 < b["noise_bandwidth"] < fs / 2
+
+    def test_adc_noise_is_not_filtered_by_receiver(self):
+        cfg = deepcopy(CFG)
+        cfg["detection"].update(shot_noise=False, thermal_nep=0, dark_current=0,
+                                bandwidth=1e6)
+        b = compute_budget(cfg)
+        expected = 2.0 / (2**16 * math.sqrt(12) * 50.0)
+        assert b["sigma_quant"] == pytest.approx(expected)
+        assert b["sigma_total"] == b["sigma_quant"]
+        cfg["adc"]["enob"] = 12.0
+        b = compute_budget(cfg)
+        assert b["sigma_total"] == pytest.approx(16 * expected)
+        assert b["sigma_adc_extra"] > 0
+
+    def test_custom_material_coefficients(self):
+        cfg = deepcopy(CFG)
+        cfg["strain"] = {"photoelastic_coefficient": 0.4}
+        cfg["temperature"] = {"thermal_expansion": 1e-6, "thermo_optic": 8e-6}
+        b = compute_budget(cfg)
+        nu = C / cfg["source"]["center_wavelength"]
+        assert b["d_nu_d_eps"] == pytest.approx(-0.6 * nu)
+        assert b["d_nu_d_T"] == pytest.approx(-9e-6 * nu)
+        assert b["eps_max"] == pytest.approx(b["delta_nu"] / (2 * 0.6 * nu))
+        cfg["temperature"] = {"thermal_expansion": 0.0, "thermo_optic": 0.0}
+        assert compute_budget(cfg)["d_nu_d_T"] == 0.0
 
     def test_phase_noise_zero_for_coherent_source(self):
         cfg = dict(CFG)

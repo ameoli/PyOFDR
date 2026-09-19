@@ -220,28 +220,50 @@ Symmetric clip at `+/- I_sat` before noise is added — the TIA noise goes on th
 ### Electronic noise
 Independent gaussians:
 
-- shot: variance `2 e |I| B`. In balanced the signal term is negligible and `I_dc = R eta P_laser` is used,
+- reference current per photodiode: `I_dc_pd = R eta P_laser / 2`, including the 50/50 recombiner,
+- single-ended shot: variance `2 e max(I_dc_pd + I_beat, 0) B`; the reference dominates for weak returns,
+- balanced shot: two independent contributions, each with variance `2 e I_dc_pd B`,
 - thermal / NEP: `sigma = R NEP sqrt(B)`, NEP in W/sqrt(Hz),
-- dark current: `sqrt(2 e I_dark B)`.
+- dark current: variance `2 e I_dark B` per photodiode, doubled in balanced mode.
 
 `B = fs/2` (sampling Nyquist band) at noise-generation time;
 the anti-alias filter then trims the useful band.
 
 ### Balanced detection
 Two photodiodes on complementary arms:
-    I_a = I_dc + I_beat + noise_a
-    I_b = I_dc - I_beat + noise_b
-    I_out = (I_a - I_b)/2 = I_beat + (noise_a - noise_b)/2
-DC cancels, beat adds, independent noises combine as sqrt(2), so the SNR gain is 3 dB over single-ended.
+    I_a = I_dc_pd + I_beat/2 + noise_a
+    I_b = I_dc_pd - I_beat/2 + noise_b
+    I_out = I_a - I_b = I_beat + noise_a - noise_b
+DC cancels and the independent shot and dark variances add. One TIA after
+the subtraction node supplies the thermal contribution; it is not doubled.
+The current implementation feeds the same stored MZI beat amplitude to both
+receiver modes. Toggling `balanced` therefore changes the noise and nonlinear
+response, but does not itself implement a physical single-port/full-difference
+signal-amplitude conversion or guarantee a 3 dB SNR improvement.
+
+Source RIN multiplies that beat in both modes. The reference-arm DC intensity
+fluctuations and finite common-mode rejection are not propagated. Consequently,
+`I_dc_pd * sqrt(RIN * B)` is not the simulated RIN floor. In the linear, weak-RIN
+regime it is `I_beat_rms * sqrt(RIN * B)`, including any optical leakage in
+`I_beat_rms`. Use RMS before filtering, without subtracting the mean.
 
 ### Anti-alias filter
 Butterworth low-pass (configurable order, typ. 4), implemented as second-order sections for stability, cutoff clipped to `0.99 fs/2`
 (`detection/filter.py`).
+The settled output variance of white noise with one-sided PSD `S` is
+`S * B_noise`, where `B_noise = integral_0^(fs/2) |H(f)|^2 df`. This equivalent
+noise bandwidth depends on order and sample rate as well as cutoff; it is not
+generally equal to the configured cutoff. The budget integrates the digital
+Butterworth response with the same cutoff clamp. Filter startup transients
+are excluded from its estimates.
 
 ### Photodiode nonlinearity
 A pre-TIA polynomial of order >= 2,
     I_out = I_in + sum_{k>=2} a_k I_in^k
-In balanced mode it acts per arm (`I_A = I_dc + I_beat`, `I_B = I_dc - I_beat` reconstructed from the DC current, each through the polynomial, then differenced), which captures the DC*beat mixing (even orders) that the single-ended path misses
+In balanced mode it acts per arm (`I_A = I_dc_pd + I_beat/2`,
+`I_B = I_dc_pd - I_beat/2`), then the outputs are differenced. In single-ended
+mode the polynomial is evaluated at `I_dc_pd + I_beat` and its static value
+at `I_dc_pd` is subtracted. Both modes retain the DC/beat mixing terms.
 
 ## ADC
 `digitizer/adc.py`.
@@ -267,7 +289,64 @@ Ref: Kester, The Data Conversion Handbook
 Post-processing under `analysis/`; reads the simulated output back.
 
 ### Budget
-`analysis/budget.py` is algebra over the config: optical power chain (laser, splitter, circulator, fiber), Rayleigh backscatter at z=0 and z=L with round-trip attenuation, noise floor as the RSS of shot / thermal / dark / quantization, plus RIN, phase-noise and strain/temp sensitivity terms. Reports total NEP and a dynamic range. Uses only the homogeneous attenuation — segments and bends aren't folded in.
+`analysis/budget.py` estimates optical power, receiver and ADC noise, and
+strain/temperature sensitivities for the configured receiver mode. Optical
+backscatter estimates use homogeneous attenuation; segments and bends are
+not folded in. Material sensitivities use `strain.photoelastic_coefficient`,
+`temperature.thermal_expansion` and `temperature.thermo_optic` from the config.
+
+All `sigma_*` values are current standard deviations in A, referred through
+the configured transimpedance. Their measurement points are:
+
+| Quantity | Meaning |
+| --- | --- |
+| `I_dc_ref` | Reference-arm equivalent current before the recombiner (retained convention) |
+| `I_dc_pd` | Half of `I_dc_ref`, incident on each photodiode |
+| `bandwidth`, `filter_cutoff` | Requested cutoff and actual clamped cutoff, Hz |
+| `noise_bandwidth` | One-sided equivalent noise bandwidth of the receiver filter, Hz |
+| `sigma_shot`, `sigma_thermal`, `sigma_dark` | Filtered receiver contributions; disabled shot noise is zero |
+| `sigma_receiver` | RSS of those three additive contributions |
+| `sigma_rin` | Filtered beat modulation, requiring the noiseless pre-filter beat RMS when RIN is enabled |
+| `sigma_analog` | RSS of receiver and RIN contributions, compared with `analog_main / input_impedance` |
+| `sigma_quant`, `sigma_adc_extra` | Full-Nyquist quantization estimate and additional ENOB noise, generated after the analog filter |
+| `sigma_total` | RSS of analog, quantization and ENOB contributions, with no post-ADC filtering |
+
+For a noiseless acquisition, the optional RIN input can be computed as:
+
+```python
+I_beat = noiseless_acq.photocurrent_main[0] * cfg["detection"]["responsivity"]
+beat_rms = float(np.sqrt(np.mean(I_beat**2)))
+b = compute_budget(cfg, beat_rms_current=beat_rms)
+```
+
+Use a linear, unsaturated reference run with source RIN and other noise
+disabled, and match the measurement interval (excluding settling). If RIN is
+enabled but `beat_rms_current` is omitted, `sigma_rin`, `sigma_analog`,
+`sigma_total`, `nep_total` and `dynamic_range_dB` are `NaN`; the additive
+receiver estimate remains available. `print_budget` explains the missing
+input instead of presenting a DC-based floor as a pipeline prediction.
+
+These are linear, reference-dominated estimates: strong signal-arm power,
+photodiode distortion/clipping, large RIN clipped at zero optical power,
+ADC clipping, jitter and DNL/INL are outside the noise estimate. Quantization
+assumes a uniform error distribution; the ADC's half-LSB floor-quantizer
+bias is not a noise standard deviation. `nep_total = sigma_total / R` is an
+integrated equivalent optical noise, not a density in W/sqrt(Hz).
+`dynamic_range_dB` uses the configured saturation current, or the reference
+current summed over the active photodiodes, as a proxy; it is not a measured
+ADC-limited dynamic range.
+
+`sigma_phi_far` remains the theoretical Lorentzian phase-difference RMS.
+It is separate from the current-noise RSS and does not imply that the main
+MZI simulates a stochastic white-FM pedestal: that component currently enters
+only through deterministic coherence roll-off.
+
+Receiver-noise validation covers both detector modes, orders 1/4/8, and
+cutoffs below and above the sampling Nyquist limit (exercising the clamp).
+Paired noisy/noiseless traces are subtracted before measuring settled RMS;
+the shot, thermal, dark, combined receiver, beat RIN and sampled-total checks
+use a 3% tolerance. Material-coefficient checks compare recovered strain and
+temperature spectral shifts against the budget within 5%.
 
 ### Demodulation
 _Work in progress._
