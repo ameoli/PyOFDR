@@ -249,11 +249,12 @@ class TestWindowedXcorrStrain:
         assert len(eps) == 1
         np.testing.assert_allclose(eps[0], eps_true, rtol=1e-10)
 
-    def test_zero_shift(self):
+    @pytest.mark.parametrize("amplitude", [1.0, 1e-12])
+    def test_zero_shift(self, amplitude):
         rng = np.random.default_rng(41)
         W = 256
         n = 4 * W
-        H = rng.standard_normal(n) + 1j * rng.standard_normal(n)
+        H = amplitude * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
         dz = 20e-6
 
         _, eps = windowed_xcorr_strain(
@@ -263,6 +264,43 @@ class TestWindowedXcorrStrain:
         )
         # same reflectogram -> no spectral shift
         np.testing.assert_allclose(eps, 0.0, atol=1e-12)
+
+    @pytest.mark.parametrize("missing", ["reference", "measurement", "both"])
+    def test_missing_signal_returns_nan(self, missing):
+        rng = np.random.default_rng(42)
+        H_ref = rng.standard_normal(64) + 1j * rng.standard_normal(64)
+        H_meas = H_ref.copy()
+        if missing in ("reference", "both"):
+            H_ref[:] = 0.0
+        if missing in ("measurement", "both"):
+            H_meas[:] = 0.0
+
+        z, eps = windowed_xcorr_strain(
+            H_meas, H_ref, dz=0.001,
+            gauge_length=0.016, stride=0.008,
+            sweep_range_hz=1e12, center_freq=193.4e12,
+        )
+
+        np.testing.assert_allclose(z, np.arange(8, 57, 8) * 0.001)
+        assert eps.shape == z.shape
+        assert np.isnan(eps).all()
+
+    def test_missing_window_keeps_valid_neighbors(self):
+        rng = np.random.default_rng(43)
+        H_ref = rng.standard_normal(48) + 1j * rng.standard_normal(48)
+        H_meas = H_ref.copy()
+        H_meas[16:32] = 0.0
+
+        z, eps = windowed_xcorr_strain(
+            H_meas, H_ref, dz=0.001,
+            gauge_length=0.016, stride=0.016,
+            sweep_range_hz=1e12, center_freq=193.4e12,
+        )
+
+        np.testing.assert_allclose(z, [0.008, 0.024, 0.040])
+        assert eps.shape == z.shape
+        assert np.isnan(eps[1])
+        np.testing.assert_allclose(eps[[0, 2]], 0.0, atol=1e-12)
 
     def test_mismatched_lengths_raise(self):
         with pytest.raises(ValueError, match="same length"):
