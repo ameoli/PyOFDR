@@ -302,6 +302,34 @@ class TestWindowedXcorrStrain:
         assert np.isnan(eps[1])
         np.testing.assert_allclose(eps[[0, 2]], 0.0, atol=1e-12)
 
+    @pytest.mark.parametrize("signal", ["reference", "measurement"])
+    @pytest.mark.parametrize("bad_value", [
+        np.nan, np.inf, -np.inf,
+        complex(1.0, np.nan), complex(1.0, np.inf), complex(1.0, -np.inf),
+    ])
+    def test_nonfinite_sample_keeps_valid_windows(self, signal, bad_value):
+        rng = np.random.default_rng(44)
+        H_ref = rng.standard_normal(64) + 1j * rng.standard_normal(64)
+        H_meas = H_ref.copy()
+        if signal == "reference":
+            H_ref[20] = bad_value
+        else:
+            H_meas[20] = bad_value
+
+        z, eps = windowed_xcorr_strain(
+            H_meas, H_ref, dz=0.001,
+            gauge_length=0.016, stride=0.008,
+            sweep_range_hz=1e12, center_freq=193.4e12,
+        )
+
+        np.testing.assert_allclose(z, np.arange(8, 57, 8) * 0.001)
+        assert eps.shape == z.shape
+        # Sample 20 belongs to the windows centered at bins 16 and 24.
+        np.testing.assert_array_equal(
+            np.isnan(eps), [False, True, True, False, False, False, False],
+        )
+        np.testing.assert_allclose(eps[[0, 3, 4, 5, 6]], 0.0, atol=1e-12)
+
     def test_mismatched_lengths_raise(self):
         with pytest.raises(ValueError, match="same length"):
             windowed_xcorr_strain(np.ones(100), np.ones(200),

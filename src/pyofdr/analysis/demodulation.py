@@ -217,7 +217,8 @@ def windowed_xcorr_strain(H_meas, H_ref, dz, gauge_length, stride,
         Window center positions [m].
     eps : 1-D float array
         Recovered local strain, same length as z_centers.
-        NaN where either reflectogram window contains only zeros.
+        NaN where either reflectogram window contains only zeros or
+        has a non-finite sample (NaN or infinity).
     """
     H_meas = np.asarray(H_meas, dtype=np.complex128)
     H_ref  = np.asarray(H_ref,  dtype=np.complex128)
@@ -242,8 +243,9 @@ def windowed_xcorr_strain(H_meas, H_ref, dz, gauge_length, stride,
         a = H_ref[k0 - W // 2 : k0 + W // 2]
         b = H_meas[k0 - W // 2 : k0 + W // 2]
 
-        # Both windows need a signal to estimate a shift.
-        if not np.any(a) or not np.any(b):
+        # Both windows need a finite, nonzero signal to estimate a shift.
+        if (not np.any(a) or not np.any(b)
+                or not np.isfinite(a).all() or not np.isfinite(b).all()):
             z_centers.append(k0 * dz)
             eps_out.append(np.nan)
             continue
