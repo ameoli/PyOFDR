@@ -40,7 +40,7 @@ class _Strict(BaseModel):
 
 
 class SimulationConfig(_Strict):
-    seed: int = 42
+    seed: int = Field(42, ge=0)
     backend: Literal["numpy", "cupy", "jax"] = "numpy"
     n_sweeps: int = Field(1, ge=1)
 

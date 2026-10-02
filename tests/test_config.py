@@ -23,6 +23,14 @@ class TestConfigValidation:
         with pytest.raises(Exception):
             RootConfig(fiber={"length": -1.0})
 
+    def test_negative_seed_is_rejected(self):
+        with pytest.raises(ValueError, match="seed"):
+            RootConfig(simulation={"seed": -1})
+
+    @pytest.mark.parametrize("seed", [0, 2**128 + 42])
+    def test_nonnegative_seed_is_accepted(self, seed):
+        assert RootConfig(simulation={"seed": seed}).simulation.seed == seed
+
     def test_unknown_backend_is_rejected(self):
         with pytest.raises(Exception):
             RootConfig(simulation={"backend": "tensorflow"})

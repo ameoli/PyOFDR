@@ -80,6 +80,7 @@ class TestEndToEndDeterminism:
                               "thermal_nep":  1.0e-11,
                               "dark_current": 1.0e-9},
                 "adc": {**CFG["adc"],
+                        "enob":         14.0,
                         "jitter_rms":   1.0e-12,    # 1 ps RMS
                         "dnl_rms_lsb":  0.2,
                         "inl_peak_lsb": 1.0}}
@@ -108,6 +109,34 @@ class TestEndToEndDeterminism:
         b = run_campaign(cfg_b)[0]
         assert not np.array_equal(a.digital_main, b.digital_main)
 
+    def test_late_sweep_is_reproducible(self):
+        from pyofdr.optics.mach_zehnder import MachZehnder
+        from pyofdr.detection.detector import Detector
+        from pyofdr.detection.filter import AntiAliasFilter
+        from pyofdr.digitizer.adc import ADC
+
+        cfg = self._all_noise_on_cfg()
+        cfg["fiber"] = {**cfg["fiber"], "n_cores": 2}
+        cfg["adc"] = {**cfg["adc"], "sample_rate": 20e6}
+
+        # Start directly at a late sweep, no need to simulate the first 1000.
+        def run_one(sweep):
+            acq = Acquisition(sweep_index=sweep)
+            for cls in [FiberGenerator, SweptLaser, MachZehnder, Detector,
+                        AntiAliasFilter, ADC]:
+                acq = cls(cfg).process(acq)
+            return acq
+
+        a = run_one(1001)
+        b = run_one(1001)
+        c = run_one(1002)
+        for field in ["fiber_profile", "E_source", "photocurrent_main",
+                      "analog_main", "digital_main"]:
+            np.testing.assert_array_equal(getattr(a, field), getattr(b, field))
+        np.testing.assert_array_equal(a.fiber_profile, c.fiber_profile)
+        assert not np.array_equal(a.digital_main, c.digital_main)
+        assert not np.array_equal(a.digital_main[0], a.digital_main[1])
+
 
 class TestSeeding:
 
@@ -118,21 +147,15 @@ class TestSeeding:
             derive_seed(s, component="laser",    sweep=0),
             derive_seed(s, component="detector", sweep=0),
             derive_seed(s, component="adc",      sweep=0),
+            derive_seed(s, component="crosstalk"),
+            derive_seed(s, component="index_fluctuations"),
         }
-        assert len(seeds) == 4
+        assert len(seeds) == 6
 
-    def test_core_stride_keeps_components_separated(self):
-        # detector core 0 sweep 999_999 should not collide with detector core 1 sweep 0
-        a = derive_seed(42, component="detector", core=0, sweep=999_999)
+    def test_large_sweep_does_not_overlap_next_core(self):
+        a = derive_seed(42, component="detector", core=0, sweep=1_000_000)
         b = derive_seed(42, component="detector", core=1, sweep=0)
         assert a != b
-
-    def test_laser_seed_matches_legacy_offset(self):
-        # behavior must be backwards compatible with the +1000+sweep convention
-        assert derive_seed(42, component="laser", sweep=7) == 42 + 1000 + 7
-
-    def test_detector_seed_matches_legacy_offset(self):
-        assert derive_seed(42, component="detector", sweep=7) == 42 + 2000 + 7
 
 
 class TestMultiSweep:
@@ -188,6 +211,7 @@ class TestHDF5Writer:
         import h5py, json
         with h5py.File(path, "r") as f:
             assert "config" in f.attrs
+            assert f.attrs["seed_scheme"] == "sha256-v1"
             cfg_back = json.loads(f.attrs["config"])
             assert cfg_back["fiber"]["length"] == CFG["fiber"]["length"]
 

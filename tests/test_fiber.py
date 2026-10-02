@@ -597,13 +597,16 @@ class TestIndexFluctuations:
 
     def test_recovered_std_matches_sigma(self):
         sigma = 1e-6
-        a, b = self._pair(sigma, 0.005)
-        ratio = b.fiber_profile[0] / a.fiber_profile[0]
-        phi = np.unwrap(np.angle(ratio))
         k0  = 2.0 * np.pi / CFG["source"]["center_wavelength"]
-        # local delta_n recovered as the discrete derivative of phi/(2 k0 dz)
-        dn = np.diff(phi) / (2.0 * k0 * b.dz)
-        np.testing.assert_allclose(np.std(dn), sigma, rtol=5e-2)
+        samples = []
+        # Nearby bins are correlated, so one 2 m fiber is a noisy estimate.
+        for seed in range(16):
+            a, b = self._pair(sigma, 0.005, seed=seed)
+            ratio = b.fiber_profile[0] / a.fiber_profile[0]
+            phi = np.unwrap(np.angle(ratio))
+            dn = np.diff(phi) / (2.0 * k0 * b.dz)
+            samples.append(dn)
+        np.testing.assert_allclose(np.std(np.concatenate(samples)), sigma, rtol=5e-2)
 
     def test_recovered_lag1_autocorr(self):
         # OU stationary lag-1 autocorr = exp(-dz/L_corr)

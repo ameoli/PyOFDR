@@ -67,9 +67,26 @@ class TestADCJitter:
                np.var(clean.digital_main.astype(np.float64))
 
     def test_more_jitter_means_more_noise(self):
-        v_lo = np.var(run_campaign(self._cfg(jitter_rms=10e-12 ))[-1].digital_main.astype(np.float64))
-        v_hi = np.var(run_campaign(self._cfg(jitter_rms=500e-12))[-1].digital_main.astype(np.float64))
+        # Compare the error on a known signal, not the total signal variance.
+        cfg = self._cfg()
+        dt = 1.0 / cfg["adc"]["sample_rate"]
+        t = np.arange(100000) * dt
+        signal = 0.1 * np.sin(2 * np.pi * 2e6 * t)
+        traces = []
+        for jitter in [0.0, 10e-12, 500e-12]:
+            acq = Acquisition()
+            acq.dt = dt
+            acq.analog_main = signal[None, :].copy()
+            out = ADC(self._cfg(jitter_rms=jitter)).process(acq)
+            traces.append(out.digital_main[0].astype(np.float64))
+        v_lo = np.var(traces[1] - traces[0])
+        v_hi = np.var(traces[2] - traces[0])
         assert v_hi > v_lo
+
+        lsb = cfg["adc"]["voltage_range"] / 2**cfg["adc"]["bits"]
+        slope = np.diff(signal) / dt
+        expected = np.mean(slope**2) * (500e-12 / lsb)**2
+        assert v_hi == pytest.approx(expected, rel=0.05)
 
     def test_jitter_with_dc_input_is_silent(self):
         # dV/dt=0 for constant signal -> jitter should add nothing

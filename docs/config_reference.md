@@ -23,7 +23,7 @@ Global run controls: master seed, compute backend, campaign size.
 
 | field | type | default | description |
 | --- | --- | --- | --- |
-| `seed` | int | 42 | master RNG seed; per-stage streams are derived from this |
+| `seed` | int >= 0 | 42 | master RNG seed; per-stage streams are derived from this |
 | `backend` | `"numpy"` \| `"cupy"` \| `"jax"` | `"numpy"` | only `numpy` is wired today |
 | `n_sweeps` | int >= 1 | 1 | number of sweeps in the campaign |
 
@@ -32,6 +32,13 @@ simulation:
   seed: 1234
   n_sweeps: 20
 ```
+
+Seed derivation changed with #83. The same config still reproduces a run
+with the current code, but the random realisation differs from older
+versions, even for a single sweep. HDF5 files now record `seed_scheme`
+as a root attribute (`sha256-v1`). Keep the code version together with
+the config when saving results; the seed alone does not identify a run
+across versions.
 
 ## fiber
 

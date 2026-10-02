@@ -4,6 +4,7 @@ Writes each sweep as it completes so we don't need to hold
 everything in RAM for long campaigns.
 
 Layout:
+    root attr seed_scheme   RNG seed derivation scheme
     /config                 JSON string of the validated config
     /derived                attrs with computed quantities
     /fiber/z                spatial axis [m]
@@ -27,6 +28,7 @@ import h5py
 import numpy as np
 
 from pyofdr.core.acquisition import Acquisition
+from pyofdr.utils.seeding import SEED_SCHEME
 
 
 class HDF5Writer:
@@ -53,6 +55,7 @@ class HDF5Writer:
     def write_config(self, cfg: dict, derived: dict) -> None:
         f = self._file
         f.attrs["config"] = json.dumps(cfg)
+        f.attrs["seed_scheme"] = SEED_SCHEME
         grp = f.create_group("derived")
         for k, v in derived.items():
             grp.attrs[k] = v

@@ -59,3 +59,24 @@ sweep's field; use the per-sweep datasets for dynamic strain.
 
 ## Campaign
 Multi-sweep runs go through `core/campaign.py`. Each sweep gets its own `Acquisition`; the RNG seeding helpers in `utils/seeding.py` make the per-sweep streams reproducible without coupling the sweeps to each other.
+
+`derive_seed` hashes the master seed, component ID, core, sweep and
+substream together with SHA-256. Each field is written as a decimal
+integer separated by `:`, with a `sha256-v1` prefix. The full digest is
+converted to a Python integer and passed to the existing NumPy RNG.
+Component IDs are fixed; adding a stage must not renumber the old ones.
+There is no shared counter, so calling stages in a different order does
+not change their seeds.
+
+This replaces the additive offsets (#83), where laser sweep 1000 and
+detector sweep 0 used the same seed. The old core and substream strides
+had similar overlaps. The new scheme removes those systematic collisions;
+hashing and RNG initialization still have a finite state space, so this
+is not a mathematical guarantee of independent streams.
+
+The random realisations change from the old scheme, including the fiber
+profile. Repeating the same config with this code remains deterministic.
+Fiber profiles and ADC DNL curves still stay fixed across sweeps, while
+the per-sweep noise changes. Random strain motion uses its own `(seed, t)`
+scheme and is unaffected. HDF5 output records the scheme in the root
+`seed_scheme` attribute; older files do not have that attribute.
