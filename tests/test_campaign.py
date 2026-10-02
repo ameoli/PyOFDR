@@ -220,6 +220,32 @@ class TestHDF5Writer:
             assert "fiber/strain_field" in f
             sf = f["fiber/strain_field"][:]
             assert sf.shape == acq.z.shape
+            np.testing.assert_array_equal(sf, acq.strain_field)
+            np.testing.assert_array_equal(
+                f["sweeps/0000/strain_field"][:], acq.strain_field)
+
+    def test_dynamic_strain_saved_per_sweep(self, tmp_path):
+        path = tmp_path / "dynamic_strain.h5"
+        cfg = {**CFG,
+               "simulation": {**CFG["simulation"], "n_sweeps": 3},
+               "strain": {"segments": [
+                   {"start": 0.2, "end": 0.5, "epsilon": 0.0,
+                    "motion": {"kind": "harmonic", "amplitude": 1e-4,
+                               "frequency": 20.0, "phase": 0.0}}]},
+               "output": {"path": str(path)}}
+        acqs = run_campaign(cfg)
+        assert not np.array_equal(acqs[0].strain_field, acqs[1].strain_field)
+        assert not np.array_equal(acqs[1].strain_field, acqs[2].strain_field)
+
+        import h5py
+        with h5py.File(path, "r") as f:
+            # the old location still holds the first sweep
+            np.testing.assert_array_equal(
+                f["fiber/strain_field"][:], acqs[0].strain_field)
+            for i, acq in enumerate(acqs):
+                saved = f[f"sweeps/{i:04d}/strain_field"][:]
+                np.testing.assert_array_equal(saved, acq.strain_field)
+                assert saved.shape == f["fiber/z"].shape
 
     def test_campaign_writes_hdf5(self, tmp_path):
         """run_campaign should write to disk when output.path is set."""
@@ -244,6 +270,9 @@ class TestHDF5Writer:
             assert "sweeps/0000/digital_main" in f
             assert "sweeps/0001/digital_main" in f
             assert "sweeps/0002/digital_main" in f
+            assert "fiber/strain_field" not in f
+            for i in range(3):
+                assert f"sweeps/{i:04d}/strain_field" not in f
 
     def test_aux_signal_persisted_when_enabled(self, tmp_path):
         """With aux_mzi enabled the aux waveform is saved per-sweep."""

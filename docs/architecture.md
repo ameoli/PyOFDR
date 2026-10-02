@@ -51,5 +51,11 @@ The aux MZI is *not* used inline: it just produces a reference signal that gets 
 `core.acquisition.Acquisition` is the dataclass that carries the output of one sweep -- digital main channel, aux MZI trace, timing, the source field, the strain / temperature fields actually applied, plus a log of which stages ran.
 The HDF5 writer in `output/` is a thin layer on top.
 
+When strain is present, each sweep stores its applied field in
+`/sweeps/0000/strain_field`, `/sweeps/0001/strain_field`, etc., using
+`/fiber/z` as the spatial axis. This also works for static strain.
+The older `/fiber/strain_field` dataset is kept and contains the first
+sweep's field; use the per-sweep datasets for dynamic strain.
+
 ## Campaign
 Multi-sweep runs go through `core/campaign.py`. Each sweep gets its own `Acquisition`; the RNG seeding helpers in `utils/seeding.py` make the per-sweep streams reproducible without coupling the sweeps to each other.
