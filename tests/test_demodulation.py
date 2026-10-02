@@ -122,10 +122,36 @@ class TestPhaseDifference:
             phase_difference_strain(np.ones(10), np.ones(20),
                                      1e-3, 1e-3, 1550e-9)
 
+    @pytest.mark.parametrize("bins", [17, 32])
+    def test_gauge_longer_than_spectrum(self, bins):
+        spec = np.ones(16, dtype=complex)
+        with pytest.raises(ValueError, match="smoothing window"):
+            phase_difference_strain(spec, spec, 0.001, bins * 0.001, 1550e-9)
+
+    @pytest.mark.parametrize("bins", [1, 16])
+    def test_gauge_keeps_input_length(self, bins):
+        spec = np.ones(16, dtype=complex)
+        result = phase_difference_strain(spec, spec, 0.001, bins * 0.001, 1550e-9)
+        assert result.shape == spec.shape
+        np.testing.assert_allclose(result, 0.0)
+
 
 # ── Cross-spectrum frequency shift ───────────────────────────────────
 
 class TestCrossSpectrumShift:
+
+    @pytest.mark.parametrize("bins", [17, 32])
+    def test_smoothing_longer_than_spectrum(self, bins):
+        H = np.ones(16, dtype=complex)
+        with pytest.raises(ValueError, match="smoothing window"):
+            cross_spectrum_shift(H, H, 0.001, smooth_bins=bins)
+
+    @pytest.mark.parametrize("bins", [0, 1, 16])
+    def test_smoothing_keeps_input_length(self, bins):
+        H = np.ones(16, dtype=complex)
+        result = cross_spectrum_shift(H, H, 0.001, smooth_bins=bins)
+        assert result.shape == H.shape
+        np.testing.assert_allclose(result, 0.0)
 
     def test_recover_uniform_shift(self):
         """Uniform strain -> constant shift, Froggatt-Moore sign."""

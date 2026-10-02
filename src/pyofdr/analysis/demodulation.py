@@ -93,7 +93,8 @@ def phase_difference_strain(spec_meas, spec_ref, dz,
         Spatial bin size [m].
     gauge_length : float
         Smoothing kernel width [m]. Controls the trade-off between
-        spatial resolution and phase noise.
+        spatial resolution and phase noise. The rounded bin count
+        must not exceed the spectrum length.
     wavelength : float
         Center wavelength [m].
     n : float
@@ -116,6 +117,8 @@ def phase_difference_strain(spec_meas, spec_ref, dz,
 
     # boxcar smoothing in the complex plane
     w = max(1, int(round(gauge_length / dz)))
+    if w > len(spec_meas):
+        raise ValueError("smoothing window is longer than the spectrum")
     kernel = np.ones(w, dtype=np.float64) / w
     smoothed = (np.convolve(cdiff.real, kernel, mode="same")
                 + 1j * np.convolve(cdiff.imag, kernel, mode="same"))
@@ -150,6 +153,7 @@ def cross_spectrum_shift(H_meas, H_ref, dz, n=1.4682, smooth_bins=0):
     smooth_bins : int
         If > 0, apply a boxcar moving average (in the complex plane)
         over this many bins before extracting the phase.
+        Must not exceed the spectrum length.
 
     Returns
     -------
@@ -163,6 +167,8 @@ def cross_spectrum_shift(H_meas, H_ref, dz, n=1.4682, smooth_bins=0):
 
     cross = H_meas * np.conj(H_ref)
 
+    if smooth_bins > len(H_meas):
+        raise ValueError("smoothing window is longer than the spectrum")
     if smooth_bins > 1:
         kernel = np.ones(smooth_bins, dtype=np.float64) / smooth_bins
         cross = (np.convolve(cross.real, kernel, mode="same")
