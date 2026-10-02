@@ -14,6 +14,9 @@ import numpy as np
 def strain_noise_floor(strain, quiet_mask):
     """Standard deviation of strain in a known-quiet region.
 
+    Non-finite values in the region are ignored. Raises ValueError
+    if no finite bins remain.
+
     Parameters
     ----------
     strain : 1-D float array
@@ -26,14 +29,18 @@ def strain_noise_floor(strain, quiet_mask):
     dict with keys:
         noise_floor : float  -- std of strain in quiet region
         mean        : float  -- mean (should be ~0)
-        n_bins      : int    -- number of bins used
+        n_bins      : int    -- number of finite bins used
     """
     strain = np.asarray(strain)
     q = strain[quiet_mask]
+    q = q[np.isfinite(q)]
+    if q.size == 0:
+        raise ValueError("quiet region must contain at least one finite bin")
+
     return {
         "noise_floor": float(np.std(q)),
         "mean": float(np.mean(q)),
-        "n_bins": int(np.sum(quiet_mask)),
+        "n_bins":  int(q.size),
     }
 
 

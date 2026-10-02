@@ -38,6 +38,35 @@ class TestStrainNoiseFloor:
         assert r["noise_floor"] == 0.0
         assert r["n_bins"] == 50
 
+    def test_invalid_bins_are_ignored(self):
+        strain = np.array([1.0, np.nan, 3.0, np.inf, -np.inf, 100.0])
+        mask = np.array([True, True, True, True, True, False])
+        r = strain_noise_floor(strain, mask)
+        assert r["noise_floor"] == pytest.approx(1.0)
+        assert r["mean"] == pytest.approx(2.0)
+        assert r["n_bins"] == 2
+
+    def test_one_valid_bin(self):
+        strain = np.array([np.nan, 2.0, np.inf])
+        mask = np.ones(3, dtype=bool)
+        r = strain_noise_floor(strain, mask)
+        assert r["noise_floor"] == 0.0
+        assert r["mean"] == 2.0
+        assert r["n_bins"] == 1
+
+    def test_no_valid_bins_in_quiet_region(self):
+        strain = np.array([np.nan, np.inf, -np.inf, 1.0])
+        mask = np.array([True, True, True, False])
+        with pytest.raises(ValueError, match="at least one finite bin"):
+            strain_noise_floor(strain, mask)
+
+    @pytest.mark.parametrize("size", [0, 4])
+    def test_empty_quiet_region(self, size):
+        strain = np.ones(size)
+        mask = np.zeros(size, dtype=bool)
+        with pytest.raises(ValueError, match="at least one finite bin"):
+            strain_noise_floor(strain, mask)
+
 
 class TestStrainSensitivity:
 
