@@ -88,8 +88,10 @@ def measure_dynamic_range(H, signal_mask, noise_mask):
         Complex reflectogram.
     signal_mask : 1-D bool array
         Bins belonging to the signal region (e.g. inside the fiber).
+        Must select at least one bin.
     noise_mask : 1-D bool array
         Bins belonging to the noise floor (e.g. beyond fiber end).
+        Must select at least one bin.
 
     Returns
     -------
@@ -99,8 +101,15 @@ def measure_dynamic_range(H, signal_mask, noise_mask):
         noise_mean  : float  -- mean noise floor [dB]
     """
     amp = np.abs(np.asarray(H))
-    sig_mean = np.mean(amp[signal_mask])
-    noi_mean = np.mean(amp[noise_mask])
+    sig = amp[signal_mask]
+    noi = amp[noise_mask]
+    if sig.size == 0:
+        raise ValueError("signal_mask must select at least one bin")
+    if noi.size == 0:
+        raise ValueError("noise_mask must select at least one bin")
+
+    sig_mean = np.mean(sig)
+    noi_mean = np.mean(noi)
 
     dr_dB = 20.0 * np.log10(sig_mean / noi_mean) if noi_mean > 0 else float("inf")
     return {

@@ -77,6 +77,23 @@ class TestMeasureDynamicRange:
         r = measure_dynamic_range(H, mask, mask)
         assert r["dr_dB"] == pytest.approx(0.0, abs=0.01)
 
+    @pytest.mark.parametrize("empty", ["signal", "noise", "both"])
+    def test_empty_region_raises(self, empty):
+        H = np.ones(16, dtype=complex)
+        sig = np.ones(16, dtype=bool)
+        noi = np.ones(16, dtype=bool)
+        if empty in ("signal", "both"):
+            sig[:] = False
+        if empty in ("noise", "both"):
+            noi[:] = False
+        with pytest.raises(ValueError, match="at least one bin"):
+            measure_dynamic_range(H, sig, noi)
+
+    def test_zero_noise_is_still_infinite_dr(self):
+        H = np.array([1.0, 0.0], dtype=complex)
+        r = measure_dynamic_range(H, [True, False], [False, True])
+        assert r["dr_dB"] == np.inf
+
 
 class TestSNRProfile:
 
