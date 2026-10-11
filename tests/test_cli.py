@@ -58,19 +58,38 @@ def _write_run_cfg(tmp_path, output_path=None):
     return p
 
 
-def test_run_writes_hdf5_when_output_set(tmp_path):
+@pytest.fixture
+def campaign_calls(monkeypatch):
+    from pyofdr.core import campaign
+
+    run_campaign = campaign.run_campaign
+    calls = []
+
+    def record_campaign(cfg, keep_acquisitions=True):
+        results = run_campaign(cfg, keep_acquisitions=keep_acquisitions)
+        # Run the real pipeline, but don't keep its arrays in this fixture.
+        calls.append((keep_acquisitions, len(results)))
+        return results
+
+    monkeypatch.setattr(campaign, "run_campaign", record_campaign)
+    return calls
+
+
+def test_run_writes_hdf5_when_output_set(tmp_path, campaign_calls):
     out = tmp_path / "out.h5"
     cfg_path = _write_run_cfg(tmp_path, output_path=out)
     code = main(["run", str(cfg_path)])
     assert code == 0
     assert out.exists()
+    assert campaign_calls == [(False, 0)]
 
 
-def test_run_no_output_path_still_succeeds(tmp_path):
+def test_run_no_output_path_still_succeeds(tmp_path, campaign_calls):
     # no output.path -> nothing written, but exit 0 is fine
     cfg_path = _write_run_cfg(tmp_path)
     code = main(["run", str(cfg_path)])
     assert code == 0
+    assert campaign_calls == [(True, 1)]
 
 
 def test_run_missing_config_exits_2(capsys):
@@ -78,16 +97,17 @@ def test_run_missing_config_exits_2(capsys):
     assert code == 2
 
 
-def test_run_output_flag_overrides_config(tmp_path):
+def test_run_output_flag_overrides_config(tmp_path, campaign_calls):
     # config has no output.path, -o picks one
     cfg_path = _write_run_cfg(tmp_path)
     out = tmp_path / "via_flag.h5"
     code = main(["run", str(cfg_path), "-o", str(out)])
     assert code == 0
     assert out.exists()
+    assert campaign_calls == [(False, 0)]
 
 
-def test_run_output_flag_wins_over_config(tmp_path):
+def test_run_output_flag_wins_over_config(tmp_path, campaign_calls):
     # config sets a path, -o should win
     in_cfg = tmp_path / "from_cfg.h5"
     cfg_path = _write_run_cfg(tmp_path, output_path=in_cfg)
@@ -96,6 +116,7 @@ def test_run_output_flag_wins_over_config(tmp_path):
     assert code == 0
     assert out.exists()
     assert not in_cfg.exists()
+    assert campaign_calls == [(False, 0)]
 
 
 def test_run_quiet_sets_root_logger_to_warning(tmp_path):

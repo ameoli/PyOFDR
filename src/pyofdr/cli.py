@@ -83,8 +83,11 @@ def main(argv: list[str] | None = None) -> int:
         # the first time around.
         logging.basicConfig(level=level, format="%(message)s")
         logging.getLogger().setLevel(level)
+        keep_acquisitions = True
+        if cfg.get("output", {}).get("path"):
+            keep_acquisitions = False
         try:
-            run_campaign(cfg)
+            run_campaign(cfg, keep_acquisitions=keep_acquisitions)
         except Exception as e:
             print(f"run failed: {e}", file=sys.stderr)
             return 1

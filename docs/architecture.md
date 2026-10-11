@@ -80,6 +80,10 @@ the campaign. The HDF5 layout is unchanged; intermediate arrays that the
 writer does not save are discarded. `keep_acquisitions` is a Python argument,
 not a YAML setting.
 
+The CLI uses this mode automatically when `pyofdr run` has an HDF5 output
+path, either from the YAML file or from `-o`. No additional flag is needed.
+Without an output path, it keeps the default campaign behavior.
+
 `derive_seed` hashes the master seed, component ID, core, sweep and
 substream together with SHA-256. Each field is written as a decimal
 integer separated by `:`, with a `sha256-v1` prefix. The full digest is
