@@ -37,6 +37,62 @@ class TestMachZehnder:
 class TestFBGIntegration:
     """End-to-end check that an FBG produces a peak in the OFDR trace (#40)."""
 
+    @pytest.mark.parametrize("transfer", ["ideal", "cox"])
+    def test_applied_fields_shift_fbg_each_sweep(self, transfer):
+        from copy import deepcopy
+        from dataclasses import replace
+        from pyofdr.fiber.strain import StrainPerturbation
+        from pyofdr.fiber.temperature import TemperaturePerturbation
+
+        cfg = deepcopy(CFG)
+        cfg["adc"]["sample_rate"] = 2e6
+        cfg["source"].update(sweep_range=2e-9, linewidth=0.0)
+        cfg["fiber"]["fbg_arrays"] = [
+            {"z": 0.5, "bragg_wavelength": 1550e-9,
+             "length": 5e-3, "peak_reflectivity": 0.04}]
+        cfg["strain"] = {
+            "photoelastic_coefficient": 0.3,
+            "transfer": transfer, "cox": {"beta": 10.0},
+            "segments": [{"start": 0.2, "end": 0.8, "epsilon": 0.0,
+                          "motion": {"kind": "harmonic", "amplitude": 2e-4,
+                                     "frequency": 20.0}}]}
+        cfg["temperature"] = {
+            "thermal_expansion": 1e-6, "thermo_optic": 1e-5,
+            "segments": [{"start": 0.2, "end": 0.8, "delta_T": 0.0,
+                          "motion": {"kind": "harmonic", "amplitude": 10.0,
+                                     "frequency": 10.0}}]}
+        original = deepcopy(cfg)
+        steps = [FiberGenerator(cfg), StrainPerturbation(cfg),
+                 TemperaturePerturbation(cfg), SweptLaser(cfg)]
+        optics = MachZehnder(cfg)
+        signals = []
+
+        # Revisit sweep 0 too. A shifted config must not leak into the next sweep.
+        for sweep in [0, 1, 2, 0]:
+            acq = Acquisition(sweep_index=sweep)
+            for step in steps:
+                acq = step.process(acq)
+            index = int(round(0.5 / acq.dz))
+            expected_wavelength = 1550e-9 * (
+                1.0 + 0.7 * acq.strain_field[index]
+                + 11e-6 * acq.temperature_field[index])
+
+            # Remove Rayleigh so the comparison isolates the grating contribution.
+            acq.fiber_profile = np.zeros_like(acq.fiber_profile)
+            reference = replace(acq, strain_field=None, temperature_field=None, log=[])
+            shifted_cfg = deepcopy(cfg)
+            shifted_cfg["fiber"]["fbg_arrays"][0]["bragg_wavelength"] = expected_wavelength
+            expected = MachZehnder(shifted_cfg).process(reference).photocurrent_main
+            actual = optics.process(acq).photocurrent_main
+            np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-14)
+            signals.append(actual)
+
+        assert not np.array_equal(signals[0], signals[1])
+        assert not np.array_equal(signals[1], signals[2])
+        np.testing.assert_array_equal(signals[0], signals[3])
+        assert cfg == original
+        assert optics.fbg_arrays == original["fiber"]["fbg_arrays"]
+
     def test_on_bragg_energy_concentrated_at_z(self):
         # The OFDR spatial response of an FBG of length L_g is a rect of
         # width L_g (in z), so the FFT peak isn't a delta -- it's a plateau

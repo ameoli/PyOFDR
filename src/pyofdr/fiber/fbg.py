@@ -15,6 +15,8 @@ Caveats:
 - Phase term is the ideal-chirp beat, not warped by sweep nonlinearity
   (small delta_nu/gamma error when both fbg and a2/a3/ripple are on).
 - Broadcast across all cores; per-core inscription is a future refinement.
+- Strain and temperature use the grating's z-bin, assumed uniform over L_g.
+  Only the resonance shifts; bandwidth and propagation phase stay unchanged.
 """
 
 from __future__ import annotations
@@ -36,6 +38,11 @@ def weak_fbg_signal(
     n_core: float,
     *,
     linewidth: float = 0.0,
+    strain_field: np.ndarray | None = None,
+    temperature_field: np.ndarray | None = None,
+    photoelastic_coefficient: float = 0.22,
+    thermal_expansion: float = 5.5e-7,
+    thermo_optic: float = 6.5e-6,
     xp=np,
 ) -> np.ndarray:
     """Real beat contribution summed over all FBGs in the list.
@@ -44,6 +51,8 @@ def weak_fbg_signal(
     Each fbg is a dict with keys 'z', 'bragg_wavelength', 'length',
     'peak_reflectivity'.  linewidth applies the same exp(-pi*lw*tau)
     coherence visibility the profile reflectors get in the MZI.
+    Optional fields contain applied strain and temperature change [K] on
+    the spatial grid. Missing fields mean zero perturbation.
     """
     n_t = nu_inst.shape[0]
     out = xp.zeros(n_t, dtype=xp.float64)
@@ -59,7 +68,19 @@ def weak_fbg_signal(
         if idx_z < 0 or idx_z >= n_z:
             continue
 
-        nu_B  = C / fbg["bragg_wavelength"]
+        shift = 0.0
+        if strain_field is not None:
+            strain = float(strain_field[idx_z])
+            shift += (1.0 - photoelastic_coefficient) * strain
+        if temperature_field is not None:
+            delta_T = float(temperature_field[idx_z])
+            shift += (thermal_expansion + thermo_optic) * delta_T
+
+        # Always start from the configured resonance. No drift between sweeps.
+        wavelength = fbg["bragg_wavelength"] * (1.0 + shift)
+        if not math.isfinite(wavelength) or wavelength <= 0:
+            raise ValueError("effective FBG Bragg wavelength must be finite and positive")
+        nu_B  = C / wavelength
         L_g   = fbg["length"]
         R_max = fbg["peak_reflectivity"]
         att   = float(attenuation[idx_z]) if attenuation is not None else 1.0

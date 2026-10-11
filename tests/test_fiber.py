@@ -411,6 +411,67 @@ class TestWeakFBG:
         np.testing.assert_allclose(out2, 2.0 * out1, atol=1e-12)
 
 
+class TestFBGPerturbations:
+
+    @pytest.mark.parametrize("strain, delta_T, wavelength_nm", [
+        (1e-3, 0.0, 1551.209),
+        (-1e-3, 0.0, 1548.791),
+        (0.0, 50.0, 1550.546375),
+        (0.0, -50.0, 1549.453625),
+        (1e-3, 50.0, 1551.755375),
+    ])
+    def test_resonance_shift(self, strain, delta_T, wavelength_nm):
+        fbg = [{"z": 0.0, "bragg_wavelength": 1550e-9,
+                "length": 5e-3, "peak_reflectivity": 0.04}]
+        wavelength = np.linspace(1548e-9, 1553e-9, 20001)
+        signal = weak_fbg_signal(
+            fbg, 1e-3, 10, None, _C / wavelength, 1.4682,
+            strain_field=np.full(10, strain),
+            temperature_field=np.full(10, delta_T))
+
+        peak = wavelength[np.argmax(np.abs(signal))]
+        assert peak == pytest.approx(wavelength_nm * 1e-9, abs=0.0003e-9, rel=0)
+        assert np.max(signal) == pytest.approx(0.2, rel=1e-5)
+        assert fbg[0]["bragg_wavelength"] == 1550e-9
+
+    def test_zero_fields_match_unperturbed_signal(self):
+        fbg = [{"z": 0.004, "bragg_wavelength": 1550e-9,
+                "length": 5e-3, "peak_reflectivity": 0.04}]
+        nu = np.linspace(_C / 1552e-9, _C / 1548e-9, 500)
+        expected = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682)
+        actual = weak_fbg_signal(
+            fbg, 1e-3, 10, None, nu, 1.4682,
+            strain_field=np.zeros(10), temperature_field=np.zeros(10))
+        np.testing.assert_array_equal(actual, expected)
+
+    @pytest.mark.parametrize("z, index", [(0.004, 4), (0.0096, 9)])
+    @pytest.mark.parametrize("field", ["strain_field", "temperature_field"])
+    def test_only_local_bin_shifts_resonance(self, z, index, field):
+        fbg = [{"z": z, "bragg_wavelength": 1550e-9,
+                "length": 5e-3, "peak_reflectivity": 0.04}]
+        nu = np.array([_C / 1550e-9])
+        expected = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682)
+        value = 1e-3 if field == "strain_field" else 50.0
+        values = np.full(10, value)
+        values[index] = 0.0
+        actual = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682,
+                                 **{field: values})
+        np.testing.assert_array_equal(actual, expected)
+
+        values[index] = value
+        shifted = weak_fbg_signal(fbg, 1e-3, 10, None, nu, 1.4682,
+                                  **{field: values})
+        assert abs(shifted[0]) < 0.1 * abs(expected[0])
+
+    @pytest.mark.parametrize("strain", [-2.0, np.nan, np.inf])
+    def test_invalid_shift_rejected(self, strain):
+        fbg = [{"z": 0.0, "bragg_wavelength": 1550e-9,
+                "length": 5e-3, "peak_reflectivity": 0.04}]
+        with pytest.raises(ValueError, match="Bragg wavelength"):
+            weak_fbg_signal(fbg, 1e-3, 10, None, np.array([_C / 1550e-9]),
+                            1.4682, strain_field=np.full(10, strain))
+
+
 class TestVaryingRayleigh:
 
     def _run(self, segments=None):

@@ -166,6 +166,27 @@ Injected into the beat after the time-warp; in z-space the FBG is not a
 delta but a rect of width `L_g/dz` bins. Born is fine for `R_max <~ 0.5`;
 coupled-mode / transfer-matrix for strong gratings is V2 (#78).
 
+The configured `bragg_wavelength` is the unperturbed resonance. At each sweep,
+the FBG reads the applied strain and temperature change at its spatial bin:
+
+    lambda_B_eff = lambda_B * (1 + (1 - p_e) eps + (alpha_L + xi) dT)
+    nu_B = C / lambda_B_eff
+
+Coefficients come from `strain.photoelastic_coefficient`,
+`temperature.thermal_expansion` and `temperature.thermo_optic`. Strain is
+taken after host-to-fiber transfer, including Cox when selected. Missing
+fields mean zero perturbation. Temperature expansion is already included
+in the thermal term; do not add that same free-fiber expansion to the strain
+field again.
+
+This is a small-perturbation model with a uniform field over each grating,
+sampled at the same rounded z-bin used for its beat phase and attenuation.
+It shifts the resonance without changing grating length, bandwidth, peak
+reflectivity or propagation phase. Gradients along a grating and the resulting
+spectral distortion are not represented. The configured wavelength stays
+unchanged between sweeps; an effective wavelength that is nonpositive or
+nonfinite is rejected.
+
 Ref: Erdogan, J. Lightwave Technol. 15, 1277 (1997).
 
 ## Optics

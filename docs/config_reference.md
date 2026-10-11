@@ -115,9 +115,16 @@ Strong gratings via CMT / transfer matrix tracked in #78.
 | field | type | description |
 | --- | --- | --- |
 | `z` | length | grating start position |
-| `bragg_wavelength` | length | nominal Bragg wavelength |
+| `bragg_wavelength` | length | unperturbed Bragg wavelength |
 | `length` | length > 0 | physical grating length |
 | `peak_reflectivity` | float in [0, 1] | R_max on-Bragg |
+
+The resonance shifts at each sweep with the applied strain and temperature
+at the grating's z-bin. It uses `strain.photoelastic_coefficient`,
+`temperature.thermal_expansion` and `temperature.thermo_optic`; no extra FBG
+setting is needed. The local values represent the whole grating, so gradients
+within its length do not broaden the spectrum. See the FBG section in
+`theory.md` for the shift formula and approximations.
 
 ### fiber.index_segments[]
 

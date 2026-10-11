@@ -131,6 +131,11 @@ class MachZehnder(PipelineStep):
                 self.fbg_arrays, acq.dz, n_z,
                 acq.attenuation_envelope, acq.nu_inst,
                 self.n_core, linewidth=self.linewidth, xp=xp,
+                strain_field=acq.strain_field,
+                temperature_field=acq.temperature_field,
+                photoelastic_coefficient=self.config["strain"]["photoelastic_coefficient"],
+                thermal_expansion=self.config["temperature"]["thermal_expansion"],
+                thermo_optic=self.config["temperature"]["thermo_optic"],
             )
             beat = beat + fbg_real[None, :]
 
