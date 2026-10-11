@@ -60,6 +60,26 @@ sweep's field; use the per-sweep datasets for dynamic strain.
 ## Campaign
 Multi-sweep runs go through `core/campaign.py`. Each sweep gets its own `Acquisition`; the RNG seeding helpers in `utils/seeding.py` make the per-sweep streams reproducible without coupling the sweeps to each other.
 
+By default, `run_campaign(cfg)` returns every acquisition in a list, even
+when HDF5 output is enabled. For long campaigns, skip that collection:
+
+```python
+from pyofdr.core.config import load_config
+from pyofdr.core.campaign import run_campaign
+
+cfg = load_config("configs/ofdr_basic.yaml")
+cfg["simulation"]["n_sweeps"] = 100
+cfg["output"]["path"] = "data/campaign.h5"
+run_campaign(cfg, keep_acquisitions=False)
+```
+
+This mode requires `output.path` and returns an empty list. Each acquisition
+is released after writing its sweep, so completed sweeps do not accumulate
+in RAM. The shared fiber and other pipeline caches remain available during
+the campaign. The HDF5 layout is unchanged; intermediate arrays that the
+writer does not save are discarded. `keep_acquisitions` is a Python argument,
+not a YAML setting.
+
 `derive_seed` hashes the master seed, component ID, core, sweep and
 substream together with SHA-256. Each field is written as a decimal
 integer separated by `:`, with a `sha256-v1` prefix. The full digest is

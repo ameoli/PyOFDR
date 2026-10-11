@@ -7,7 +7,7 @@ from pyofdr.core.config import compute_derived
 logger = logging.getLogger(__name__)
 
 
-def run_campaign(cfg: dict) -> list[Acquisition]:
+def run_campaign(cfg: dict, keep_acquisitions: bool = True) -> list[Acquisition]:
     """Run one or more sweeps and return the list of Acquisitions.
 
     The fiber profile is generated once and reused across sweeps.
@@ -18,11 +18,14 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
     ----------
     cfg : dict
         Config dict from load_config.
+    keep_acquisitions : bool
+        Keep each sweep in memory. If False, output.path is required
+        and acquisitions are released after writing them to HDF5.
 
     Returns
     -------
     list[Acquisition]
-        One Acquisition per sweep.
+        One Acquisition per sweep, or an empty list if keep_acquisitions=False.
     """
     from pyofdr.fiber.profile import FiberGenerator
     from pyofdr.fiber.strain import StrainPerturbation
@@ -34,6 +37,10 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
     from pyofdr.detection.filter import AntiAliasFilter
     from pyofdr.digitizer.adc import ADC
     from pyofdr.output.hdf5_writer import HDF5Writer
+
+    output_path = cfg.get("output", {}).get("path")
+    if not keep_acquisitions and not output_path:
+        raise ValueError("output.path is required when keep_acquisitions=False")
 
     derived = compute_derived(cfg)
     n_sweeps = cfg.get("simulation", {}).get("n_sweeps", 1)
@@ -57,9 +64,9 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
         ADC(cfg),
     ]
 
-    output_path = cfg.get("output", {}).get("path")
     writer = None
     acquisitions = []
+    n_samples = 0
 
     try:
         if output_path:
@@ -77,7 +84,12 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
                     writer.write_fiber(acq)
                 writer.write_sweep(acq, sweep_index=i)
 
-            acquisitions.append(acq)
+            n_samples = acq.n_samples
+            if keep_acquisitions:
+                acquisitions.append(acq)
+            else:
+                # The shared fiber stays cached. This sweep's arrays can go now.
+                del acq
             logger.info("  sweep %d/%d done", i + 1, n_sweeps)
 
     finally:
@@ -87,5 +99,5 @@ def run_campaign(cfg: dict) -> list[Acquisition]:
     if output_path:
         logger.info("Output written to %s", output_path)
     logger.info("Simulation complete, %d sweep%s, %d samples each",
-                n_sweeps, "s" if n_sweeps > 1 else "", acquisitions[0].n_samples)
+                n_sweeps, "s" if n_sweeps > 1 else "", n_samples)
     return acquisitions

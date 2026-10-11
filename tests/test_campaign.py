@@ -197,6 +197,95 @@ class TestMultiSweep:
         assert results[0].digital_main is not None
 
 
+class TestCampaignWithoutCollection:
+
+    def _cfg(self, n_sweeps):
+        return {**CFG,
+                "simulation": {**CFG["simulation"], "n_sweeps": n_sweeps},
+                "source": {**CFG["source"], "sweep_duration": 0.001,
+                           "sweep_range": 0.5e-9},
+                "adc": {**CFG["adc"], "sample_rate": 20e6},
+                "optics": {**CFG["optics"],
+                           "aux_mzi": {"enabled": True, "delay": 100e-9}},
+                "strain": {"segments": [
+                    {"start": 0.2, "end": 0.5, "epsilon": 0.0,
+                     "motion": {"kind": "harmonic", "amplitude": 1e-4,
+                                "frequency": 200.0, "phase": 0.0}}]}}
+
+    @pytest.mark.parametrize("n_sweeps", [1, 3])
+    def test_saved_sweeps_match_default(self, tmp_path, n_sweeps):
+        import h5py
+        import json
+
+        cfg = self._cfg(n_sweeps)
+        expected = run_campaign(cfg)
+        path = tmp_path / "streamed.h5"
+        cfg["output"] = {"path": str(path)}
+        results = run_campaign(cfg, keep_acquisitions=False)
+        assert results == []
+
+        with h5py.File(path, "r") as f:
+            assert len(f["sweeps"]) == n_sweeps
+            assert json.loads(f.attrs["config"]) == cfg
+            assert f.attrs["seed_scheme"] == "sha256-v1"
+            assert f["derived"].attrs["n_t"] == expected[0].n_samples
+            np.testing.assert_array_equal(f["fiber/z"][:], expected[0].z)
+            np.testing.assert_array_equal(
+                f["fiber/strain_field"][:], expected[0].strain_field)
+
+            for i, acq in enumerate(expected):
+                sweep = f[f"sweeps/{i:04d}"]
+                np.testing.assert_array_equal(sweep["digital_main"][:], acq.digital_main)
+                np.testing.assert_array_equal(
+                    sweep["analog_main"][:], acq.analog_main.astype(np.float32))
+                np.testing.assert_array_equal(sweep["strain_field"][:], acq.strain_field)
+                np.testing.assert_array_equal(
+                    sweep["aux_signal"][:], acq.aux_signal.astype(np.float32))
+                assert sweep["aux_signal"].attrs["valid_start"] == acq.aux_valid_start
+                saved_log = json.loads(sweep.attrs["log"])
+                expected_log = json.loads(json.dumps(acq.log))
+                assert saved_log == expected_log
+
+    @pytest.mark.parametrize("output", [None, {}, {"path": None}, {"path": ""}])
+    def test_output_path_required(self, output):
+        cfg = self._cfg(1)
+        if output is not None:
+            cfg["output"] = output
+        with pytest.raises(ValueError, match="output.path is required"):
+            run_campaign(cfg, keep_acquisitions=False)
+
+    def test_previous_sweep_released(self, tmp_path, monkeypatch):
+        import gc
+        import weakref
+
+        cfg = self._cfg(3)
+        cfg["output"] = {"path": str(tmp_path / "released.h5")}
+        refs = []
+        process_fiber = FiberGenerator.process
+        write_sweep = HDF5Writer.write_sweep
+
+        def check_before_sweep(step, acq):
+            gc.collect()
+            for ref in refs:
+                assert ref() is None
+            return process_fiber(step, acq)
+
+        def remember_sweep(writer, acq, sweep_index):
+            # Weak refs don't keep the arrays alive just for the test.
+            refs.append(weakref.ref(acq))
+            for field in ["E_source", "analog_main", "digital_main", "aux_signal"]:
+                refs.append(weakref.ref(getattr(acq, field)))
+            write_sweep(writer, acq, sweep_index)
+
+        monkeypatch.setattr(FiberGenerator, "process", check_before_sweep)
+        monkeypatch.setattr(HDF5Writer, "write_sweep", remember_sweep)
+        assert run_campaign(cfg, keep_acquisitions=False) == []
+        assert len(refs) == 15
+        gc.collect()
+        for ref in refs:
+            assert ref() is None
+
+
 class TestHDF5Writer:
 
     def test_write_and_read_back(self, tmp_path):
