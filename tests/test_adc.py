@@ -43,6 +43,27 @@ class TestADC:
         assert out.digital_main.dtype == np.int32
         assert np.all(out.digital_main == 117964)
 
+    @pytest.mark.parametrize("bits", [1, 16, 18, 31, 32])
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_full_scale_and_clipping(self, bits, dtype):
+        adc = ADC({"adc": {"bits": bits}})
+        acq = Acquisition()
+        acq.analog_main = np.array([[-2.0, -1.0, 0.0, 1.0, 2.0]], dtype=dtype)
+
+        with np.errstate(invalid="raise", over="raise"):
+            out = adc.process(acq)
+
+        half = 2 ** (bits - 1)
+        expected = [[-half, -half, 0, half - 1, half - 1]]
+        np.testing.assert_array_equal(out.digital_main, expected)
+        expected_dtype = np.int16 if bits <= 16 else np.int32
+        assert out.digital_main.dtype == expected_dtype
+
+    @pytest.mark.parametrize("bits", [0, 33, 64])
+    def test_unsupported_bits_rejected(self, bits):
+        with pytest.raises(ValueError, match="bits"):
+            ADC({"adc": {"bits": bits}})
+
 
 class TestADCJitter:
 
@@ -174,6 +195,17 @@ class TestADCEnob:
 
 
 class TestADCNonlinearity:
+
+    def test_large_inl_saturates_without_wrap(self):
+        # Deliberately oversized. Both ends must saturate with the right sign.
+        adc = ADC({"adc": {"bits": 4, "inl_peak_lsb": 3e9}})
+        acq = Acquisition()
+        acq.analog_main = np.array([[-0.5, 0.5]])
+
+        with np.errstate(invalid="raise", over="raise"):
+            out = adc.process(acq)
+
+        np.testing.assert_array_equal(out.digital_main, [[7, -8]])
 
     def _cfg(self, **adc_overrides):
         cfg = {**CFG, "adc": {**CFG["adc"], **adc_overrides}}

@@ -400,7 +400,7 @@ Digitizer stage: quantization and sampling plus the non-ideal effects
 
 | field | type | default | description |
 | --- | --- | --- | --- |
-| `bits` | int >= 1 | 16 | full bit depth |
+| `bits` | int, 1 to 32 | 16 | full bit depth; output is int16 up to 16 bits, int32 above |
 | `enob` | float > 0 \| None | None | effective ENOB; must be <= `bits` |
 | `sample_rate` | Hz > 0 | 2.0e8 | sampling rate |
 | `voltage_range` | V > 0 | 2.0 | full-scale input range |

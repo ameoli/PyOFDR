@@ -124,7 +124,8 @@ class ADC(PipelineStep):
 
         clipped = xp.clip(analog, -self.v_max, self.v_max)
         normalized = clipped / self.v_max           # [-1, 1]
-        digital = xp.floor(normalized * half).astype(xp.int32)
+        # At 32 bits, +full scale is 2**31 before clipping. Too big for int32.
+        digital = xp.floor(normalized * half).astype(xp.int64)
         digital = xp.clip(digital, -half, half - 1)
 
         # DNL/INL: shift each output code by the precomputed nonlinearity
@@ -132,7 +133,8 @@ class ADC(PipelineStep):
         if self._nl_curve is not None:
             curve = xp.asarray(self._nl_curve)
             offset = curve[digital + half]
-            digital = xp.floor(digital + offset).astype(xp.int32)
+            # Large offsets can leave the code range. Clip before the final cast.
+            digital = xp.floor(digital + offset)
             digital = xp.clip(digital, -half, half - 1)
 
         # int16 would silently wrap the codes for bits > 16 (#89)

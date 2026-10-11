@@ -361,7 +361,7 @@ class DetectionConfig(_Strict):
 
 
 class ADCConfig(_Strict):
-    bits:            int          = Field(16, ge=1)
+    bits:            int          = Field(16, ge=1, le=32)
     enob:            float | None = Field(None, gt=0)
     sample_rate:     Frequency    = Field(2.0e8, gt=0)
     voltage_range:   Voltage      = Field(2.0,   gt=0)
