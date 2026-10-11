@@ -370,7 +370,38 @@ use a 3% tolerance. Material-coefficient checks compare recovered strain and
 temperature spectral shifts against the budget within 5%.
 
 ### Demodulation
-_Work in progress._
+
+`windowed_xcorr_strain` compares spatial reflectogram windows of `W` samples.
+For reference `a` and measurement `b`, define `q[j] = b[j] * conj(a[j])`.
+The local spectral correlation, apart from normalization, is
+
+\[
+C(\ell) = \sum_{j=0}^{W-1} q_j \exp(2\pi i\ell j/W).
+\]
+
+The default `peak_method="continuous"` locates the largest sampled magnitude
+with an IFFT padded to `8W`, then maximizes `|C|^2` over the neighboring
+interval of plus or minus 1/8 original lag bin. The bounded scalar search
+uses an offset tolerance of `1e-10` bins. This is a solver stopping tolerance,
+not a physical accuracy guarantee. Scaling each window before multiplication
+avoids losing faint signals through underflow.
+
+The recovered shift is `dnu = lag * sweep_range_hz / W`, and strain is
+`-dnu / (center_freq * (1 - p_e))`. The lag is periodic and returned in
+`[-W/2, W/2)`. Larger shifts alias; noise or decorrelation can also make
+another peak win. Continuous refinement removes the coarse parabolic
+interpolation bias, but cannot resolve those ambiguities.
+
+Use `peak_method="parabolic"` to reproduce the previous, faster estimator.
+It fits three samples of the unpadded correlation magnitude and can bias
+fractional shifts substantially. Existing calls now use continuous refinement
+and therefore have a higher processing cost. Fiber generation is unchanged.
+
+Both methods return `NaN` for zero or nonfinite input windows. The continuous
+method also returns `NaN` when fewer than two nonzero spatial samples overlap,
+or when optimization fails. This is a minimal validity check, not a confidence
+score. Tests use known phase ramps, both shift signs, periodic boundaries,
+and the fractional shift corresponding to a 5 K temperature change.
 
 ### Quality metrics
 Spatial (`analysis/spatial_metrics.py`): peak SNR, integrated reflected power per region, baseline noise floor, dead-zone.

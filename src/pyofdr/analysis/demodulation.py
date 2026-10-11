@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from scipy.optimize import minimize_scalar
 from scipy.signal import hilbert as _hilbert
 
 from pyofdr.utils.constants import C
@@ -185,8 +186,48 @@ def cross_spectrum_shift(H_meas, H_ref, dz, n=1.4682, smooth_bins=0):
 
 # ── 4. Windowed sub-spectrum cross-correlation ──────────────────────
 
+def _continuous_correlation_lag(a, b):
+    """Refine the strongest sampled peak of the periodic correlation."""
+    W = len(a)
+    # Scale before multiplying. Very faint windows still carry phase information.
+    a_scale = max(np.max(np.abs(a.real)), np.max(np.abs(a.imag)))
+    b_scale = max(np.max(np.abs(b.real)), np.max(np.abs(b.imag)))
+    q = (b / b_scale) * np.conj(a / a_scale)
+    if np.count_nonzero(q) < 2:
+        return np.nan
+    q /= np.sum(np.abs(q))
+
+    oversampling = 8
+    correlation = np.fft.fftshift(np.fft.ifft(q, n=W * oversampling))
+    peak = int(np.argmax(np.abs(correlation)))
+    coarse_lag = (peak - W * oversampling // 2) / oversampling
+
+    positions = (np.arange(W) - (W - 1) / 2) / W
+    weights = q * np.exp(2j * np.pi * coarse_lag * positions)
+
+    def objective(offset):
+        value = np.sum(weights * np.exp(2j * np.pi * offset * positions))
+        return -float(np.abs(value) ** 2)
+
+    # Optimize a small offset, so tolerance does not grow near the lag boundary.
+    result = minimize_scalar(
+        objective, bounds=(-1 / oversampling, 1 / oversampling),
+        method="bounded", options={"xatol": 1e-10},
+    )
+    if not result.success or not np.isfinite(result.fun):
+        return np.nan
+
+    offset = result.x
+    # Keep exact grid peaks when the apparent gain is just roundoff.
+    if objective(0.0) <= result.fun + 4 * np.finfo(float).eps:
+        offset = 0.0
+    lag = coarse_lag + offset
+    return (lag + W / 2) % W - W / 2
+
+
 def windowed_xcorr_strain(H_meas, H_ref, dz, gauge_length, stride,
-                          sweep_range_hz, center_freq, p_e=0.22):
+                          sweep_range_hz, center_freq, p_e=0.22, *,
+                          peak_method="continuous"):
     """Distributed strain via local sub-spectrum cross-correlation.
 
     For each sliding window of `gauge_length`, takes the IFFT of the
@@ -195,8 +236,8 @@ def windowed_xcorr_strain(H_meas, H_ref, dz, gauge_length, stride,
     in optical frequency converts to strain via Froggatt-Moore:
     `eps = -dnu / (nu_0 (1 - p_e))`.
 
-    Handles arbitrarily large strains (unlike phase_difference_strain,
-    which needs `gauge * d_phi/d_z << 1`). Typical gauge 0.5-5 cm.
+    The lag is periodic with W bins and is returned in [-W/2, W/2).
+    Shifts outside this interval alias. Typical gauge 0.5-5 cm.
 
     Parameters
     ----------
@@ -216,6 +257,11 @@ def windowed_xcorr_strain(H_meas, H_ref, dz, gauge_length, stride,
         Laser center optical frequency [Hz].
     p_e : float
         Photoelastic coefficient.
+    peak_method : {"continuous", "parabolic"}, keyword-only
+        Default: locate the peak with an 8x padded IFFT, then maximize the
+        continuous correlation magnitude locally (offset tolerance 1e-10
+        original lag bins). "parabolic" selects the previous three-sample
+        estimate, which is faster but biased for fractional shifts.
 
     Returns
     -------
@@ -224,12 +270,18 @@ def windowed_xcorr_strain(H_meas, H_ref, dz, gauge_length, stride,
     eps : 1-D float array
         Recovered local strain, same length as z_centers.
         NaN where either reflectogram window contains only zeros or
-        has a non-finite sample (NaN or infinity).
+        has a non-finite sample (NaN or infinity). The continuous method
+        also returns NaN if fewer than two spatial samples overlap with
+        nonzero signal, or if the peak refinement fails to converge.
     """
     H_meas = np.asarray(H_meas, dtype=np.complex128)
     H_ref  = np.asarray(H_ref,  dtype=np.complex128)
     if H_meas.shape != H_ref.shape:
         raise ValueError("reflectograms must have the same length")
+    if H_meas.ndim != 1:
+        raise ValueError("reflectograms must be 1-D arrays")
+    if peak_method not in ("continuous", "parabolic"):
+        raise ValueError("peak_method must be 'continuous' or 'parabolic'")
 
     n_bins = len(H_ref)
     W = int(round(gauge_length / dz))
@@ -254,6 +306,14 @@ def windowed_xcorr_strain(H_meas, H_ref, dz, gauge_length, stride,
                 or not np.isfinite(a).all() or not np.isfinite(b).all()):
             z_centers.append(k0 * dz)
             eps_out.append(np.nan)
+            continue
+
+        if peak_method == "continuous":
+            lag = _continuous_correlation_lag(a, b)
+            dnu = lag * dnu_bin
+            eps = -dnu / (center_freq * (1.0 - p_e))
+            z_centers.append(k0 * dz)
+            eps_out.append(eps)
             continue
 
         # local spectra in optical-frequency domain

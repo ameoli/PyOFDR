@@ -243,6 +243,117 @@ class TestCrossSpectrumShift:
 
 class TestWindowedXcorrStrain:
 
+    @pytest.mark.parametrize("lag", [-244.03, -243.97, -7.0, -0.95,
+                                    -2 / 3, 0.0, 0.21, 0.95, 243.97, 244.03])
+    @pytest.mark.parametrize("amplitude", [1e-200, 1.0, 1e200])
+    @pytest.mark.parametrize("profile", ["uniform", "rayleigh"])
+    def test_continuous_fractional_lag(self, lag, amplitude, profile):
+        W = 488
+        rng = np.random.default_rng(105)
+        reference = np.ones(W, dtype=complex)
+        if profile == "rayleigh":
+            reference = rng.normal(size=W) + 1j * rng.normal(size=W)
+        reference *= amplitude
+        measured = reference * np.exp(-2j * np.pi * lag * np.arange(W) / W)
+
+        _, strain = windowed_xcorr_strain(
+            measured, reference, dz=1.0, gauge_length=W, stride=W,
+            sweep_range_hz=W, center_freq=1.0, p_e=0.0,
+        )
+        recovered_lag = -strain[0]
+        error = (recovered_lag - lag + W / 2) % W - W / 2
+        assert -W / 2 <= recovered_lag < W / 2
+        assert abs(error) < 1e-7
+
+    def test_five_kelvin_fractional_shift(self):
+        W = 488
+        center_freq = 193.4e12
+        thermal_coefficient = 7.05e-6
+        kelvin_per_bin = 7.501003259
+        sweep = kelvin_per_bin * W * center_freq * thermal_coefficient
+        lag = -5.0 / kelvin_per_bin
+        reference = np.ones(W, dtype=complex)
+        measured = np.exp(-2j * np.pi * lag * np.arange(W) / W)
+        temperatures = {}
+        for method in ("continuous", "parabolic"):
+            _, strain = windowed_xcorr_strain(
+                measured, reference, dz=1.0, gauge_length=W, stride=W,
+                sweep_range_hz=sweep, center_freq=center_freq,
+                peak_method=method,
+            )
+            temperatures[method] = strain[0] * 0.78 / thermal_coefficient
+
+        assert abs(temperatures["continuous"] - 5.0) < 1e-6
+        assert 6.7 < temperatures["parabolic"] < 6.8
+
+    @pytest.mark.parametrize("lag", [-32.0, -3.2, 0.4, 31.0])
+    def test_parabolic_preserves_previous_estimator(self, lag):
+        W = 64
+        rng = np.random.default_rng(106)
+        reference = rng.normal(size=W) + 1j * rng.normal(size=W)
+        measured = reference * np.exp(-2j * np.pi * lag * np.arange(W) / W)
+        A = np.fft.ifft(reference)
+        B = np.fft.ifft(measured)
+        mag = np.abs(np.fft.fftshift(np.fft.ifft(
+            np.fft.fft(B) * np.conj(np.fft.fft(A)))))
+        peak = int(np.argmax(mag))
+        fraction = 0.0
+        if 0 < peak < W - 1:
+            left, middle, right = mag[peak - 1:peak + 2]
+            fraction = 0.5 * (left - right) / (left - 2 * middle + right)
+        expected = -(peak - W // 2 + fraction)
+        _, strain = windowed_xcorr_strain(
+            measured, reference, dz=1.0, gauge_length=W, stride=W,
+            sweep_range_hz=W, center_freq=1.0, p_e=0.0,
+            peak_method="parabolic",
+        )
+        assert strain[0] == expected
+
+    @pytest.mark.parametrize("overlap", [0, 1])
+    def test_uninformative_overlap_returns_nan(self, overlap):
+        reference = np.zeros(16, dtype=complex)
+        measured = np.zeros(16, dtype=complex)
+        reference[:8] = 1
+        measured[8 - overlap:] = 1
+        _, strain = windowed_xcorr_strain(
+            measured, reference, dz=1.0, gauge_length=16, stride=16,
+            sweep_range_hz=16, center_freq=1.0,
+        )
+        assert np.isnan(strain[0])
+
+    def test_continuous_refinement_failure_returns_nan(self, monkeypatch):
+        from types import SimpleNamespace
+        from pyofdr.analysis import demodulation
+
+        def failed_search(*args, **kwargs):
+            return SimpleNamespace(success=False, fun=-1.0, x=0.0)
+
+        monkeypatch.setattr(demodulation, "minimize_scalar", failed_search)
+        _, strain = windowed_xcorr_strain(
+            np.ones(16), np.ones(16), dz=1.0, gauge_length=16, stride=16,
+            sweep_range_hz=16, center_freq=1.0,
+        )
+        assert np.isnan(strain[0])
+
+    def test_unknown_peak_method_raises(self):
+        with pytest.raises(ValueError, match="peak_method"):
+            windowed_xcorr_strain(
+                np.ones(16), np.ones(16), dz=1.0, gauge_length=16, stride=16,
+                sweep_range_hz=16, center_freq=1.0, peak_method="typo",
+            )
+
+    def test_odd_gauge_uses_even_window_for_lag_conversion(self):
+        W = 32
+        lag = 0.37
+        reference = np.ones(4 * W, dtype=complex)
+        measured = np.exp(-2j * np.pi * lag * np.arange(4 * W) / W)
+        z, strain = windowed_xcorr_strain(
+            measured, reference, dz=1.0, gauge_length=W + 1, stride=W,
+            sweep_range_hz=W, center_freq=1.0, p_e=0.0,
+        )
+        np.testing.assert_array_equal(z, [16, 48, 80, 112])
+        np.testing.assert_allclose(strain, -lag, rtol=0, atol=1e-7)
+
     def test_synthetic_integer_shift(self):
         """Rolling the local spectrum by an integer number of bins
         must show up as the matching freq shift, and thus as a strain
