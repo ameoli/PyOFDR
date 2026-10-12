@@ -1,9 +1,8 @@
 """Mach-Zehnder interferomter
 
-For a perfectly linear sweep, the beat signal is just the IFFT of the
-fiber profile. This is the key insight that makes the simulation
-O(N*log(N)) instead of O(N^2). Each spatial bin k corresponds to beat
-frequency f_k, so the IFFT directly gives us the time-domain beat signal.
+For a linear sweep with an integer sample count, the beat is the IFFT
+of the fiber profile. Fractional sample counts use a unit-circle chirp
+z-transform on the actual ADC times. Both avoid a dense Fourier sum.
 
 When the laser has sweep nonlinearity (a2, a3, ripple), each scatterer's
 beat frequency wobbles in the same way. This is equivalent to a
@@ -26,6 +25,7 @@ import warnings
 from typing import Any
 
 import numpy as np
+from scipy.signal import ZoomFFT
 
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.pipeline import PipelineStep
@@ -72,6 +72,8 @@ class MachZehnder(PipelineStep):
         self.linewidth = src["linewidth"]
         self.n_core = self.config["fiber"]["n_core"]
         self.fbg_arrays = self.config["fiber"].get("fbg_arrays", [])
+        self._beat_transform = None
+        self._beat_transform_key = None
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.fiber_profile is None:
@@ -109,13 +111,24 @@ class MachZehnder(PipelineStep):
                 weighted = weighted.copy()
             weighted[:, 0] = weighted[:, 0] + rl
 
-        # zero-pad up to n_samples along the time axis
-        n_pad = acq.n_samples - n_z
-        h = xp.concatenate([
-            weighted.astype(xp.complex128),
-            xp.zeros((n_c, n_pad), dtype=xp.complex128),
-        ], axis=-1)
-        beat = self.bk.fft.ifft(h, axis=-1) * acq.n_samples
+        samples_per_sweep = self.sweep_duration / acq.dt
+        integer_sweep = abs(samples_per_sweep - acq.n_samples) <= 4 * math.ulp(samples_per_sweep)
+        if integer_sweep:
+            n_pad = acq.n_samples - n_z
+            h = xp.concatenate([
+                weighted.astype(xp.complex128),
+                xp.zeros((n_c, n_pad), dtype=xp.complex128),
+            ], axis=-1)
+            beat = self.bk.fft.ifft(h, axis=-1) * acq.n_samples
+        else:
+            # N/fs can exceed T. Evaluate sum(h[k] exp(2 pi i k t/T))
+            # on the ADC clock without stretching the physical sweep.
+            end = acq.n_samples * acq.dt / self.sweep_duration
+            key = (n_z, acq.n_samples, end)
+            if key != self._beat_transform_key:
+                self._beat_transform = ZoomFFT(n_z, [0, end], m=acq.n_samples, fs=1.0)
+                self._beat_transform_key = key
+            beat = xp.conj(self._beat_transform(xp.conj(weighted), axis=-1))
 
         # time-warp for sweep nonlinearity: if the chirp rate varies,
         # each scatterer's beat freq scales by dnu/dt / gamma. This is
@@ -131,6 +144,7 @@ class MachZehnder(PipelineStep):
                 self.fbg_arrays, acq.dz, n_z,
                 acq.attenuation_envelope, acq.nu_inst,
                 self.n_core, linewidth=self.linewidth, xp=xp,
+                time_fraction=acq.t / self.sweep_duration,
                 strain_field=acq.strain_field,
                 temperature_field=acq.temperature_field,
                 photoelastic_coefficient=self.config["strain"]["photoelastic_coefficient"],
@@ -190,7 +204,7 @@ class MachZehnder(PipelineStep):
 
         dt = acq.dt
         n = acq.n_samples
-        t = xp.arange(n) * dt
+        t = acq.t
 
         # instantaneous frequency deviation from the linear ramp
         delta_nu = xp.zeros(n, dtype=xp.float64)
@@ -233,7 +247,8 @@ class MachZehnder(PipelineStep):
                 stacklevel=2,
             )
 
-        # resample each core via linear interpolation
+        # The ideal beat is already on acq.t, including fractional sweeps.
+        # Interpolation error and the small-delay approximation remain.
         n_c = beat.shape[0]
         warped = xp.empty_like(beat)
         for c in range(n_c):

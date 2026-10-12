@@ -79,6 +79,11 @@ class HDF5Writer:
         """Write one sweep's data."""
         name = f"sweeps/{sweep_index:04d}"
         grp = self._file.create_group(name)
+        grp.attrs["n_samples"] = acq.n_samples
+        grp.attrs["dt"] = acq.dt
+        grp.attrs["frequency_step_hz"] = acq.frequency_step_hz
+        grp.attrs["fft_sweep_range_hz"] = acq.fft_sweep_range_hz
+        grp.attrs["fft_dz"] = acq.fft_dz
 
         if acq.strain_field is not None:
             grp.create_dataset("strain_field",  data=np.asarray(acq.strain_field))

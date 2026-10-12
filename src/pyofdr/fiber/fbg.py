@@ -43,6 +43,7 @@ def weak_fbg_signal(
     photoelastic_coefficient: float = 0.22,
     thermal_expansion: float = 5.5e-7,
     thermo_optic: float = 6.5e-6,
+    time_fraction: np.ndarray | None = None,
     xp=np,
 ) -> np.ndarray:
     """Real beat contribution summed over all FBGs in the list.
@@ -53,13 +54,20 @@ def weak_fbg_signal(
     coherence visibility the profile reflectors get in the MZI.
     Optional fields contain applied strain and temperature change [K] on
     the spatial grid. Missing fields mean zero perturbation.
+    time_fraction is t / sweep_duration on the ADC clock. If omitted,
+    assume an integer number of samples per sweep, as in earlier calls.
     """
     n_t = nu_inst.shape[0]
     out = xp.zeros(n_t, dtype=xp.float64)
     if not fbgs:
         return out
 
-    n_idx = xp.arange(n_t)
+    if time_fraction is None:
+        time_fraction = xp.arange(n_t) / n_t
+    else:
+        time_fraction = xp.asarray(time_fraction)
+        if time_fraction.shape != (n_t,) or not xp.isfinite(time_fraction).all():
+            raise ValueError("time_fraction must be finite and match nu_inst")
 
     for fbg in fbgs:
         idx_z = int(round(fbg["z"] / dz))
@@ -92,8 +100,7 @@ def weak_fbg_signal(
         envelope = math.sqrt(R_max) * att * xp.sinc(
             2.0 * n_core * L_g * (nu_inst - nu_B) / C
         )
-        # match the IFFT-based reflector convention: exp(2 pi i idx_z n / N)
-        phase = 2.0 * math.pi * idx_z * n_idx / n_t
+        phase = 2.0 * math.pi * idx_z * time_fraction
         out = out + envelope * xp.cos(phase)
 
     return out

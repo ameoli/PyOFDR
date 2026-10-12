@@ -27,6 +27,7 @@ from pyofdr.core.pipeline import PipelineStep
 from pyofdr.source.phase_noise import frequency_noise
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
+from pyofdr.utils.sampling import sweep_sample_count
 from pyofdr.utils.units import wavelength_range_to_freq_range
 
 
@@ -64,7 +65,7 @@ class SweptLaser(PipelineStep):
     def process(self, acq: Acquisition) -> Acquisition:
         xp = self.bk.xp
         dt = 1.0 / self.sample_rate
-        n_samples = int(math.ceil(self.sweep_duration * self.sample_rate))
+        n_samples = sweep_sample_count(self.sweep_duration, self.sample_rate)
         t = xp.arange(n_samples) * dt
 
         # instantanous frequency: linear ramp + optional nonlinearity
@@ -132,6 +133,9 @@ class SweptLaser(PipelineStep):
         acq.t = t
         acq.dt = dt
         acq.n_samples = n_samples
+        acq.frequency_step_hz = self.gamma * dt
+        acq.fft_sweep_range_hz = n_samples * acq.frequency_step_hz
+        acq.fft_dz = C / (2 * self.config["fiber"]["n_core"] * acq.fft_sweep_range_hz)
         acq.nu_inst = nu_inst
         acq.nu_noise = nu_noise_slow
         acq.E_source = E

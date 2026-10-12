@@ -427,6 +427,18 @@ adc:
 
 ## output
 
+`source.sweep_duration` and `adc.sample_rate` are preserved even when their
+product is fractional. The sample count is its ceiling, except for roundoff
+within four ULPs of an integer. The main beat and FBG phase use the actual
+ADC times. Fractional counts use a chirp z-transform instead of the usual IFFT.
+
+`acq.dz` remains the fiber construction spacing. Use `acq.fft_dz` for the
+unpadded raw reflectogram and `acq.fft_sweep_range_hz` for its cross-correlation
+frequency conversion. Both also appear in HDF5 `/derived` attributes and in
+each sweep's attributes, together with `frequency_step_hz`. Each sweep records
+`n_samples` and `dt` as well. See the sample-grid discussion in `theory.md`
+before cropping, padding or k-clock resampling.
+
 | field | type | default | description |
 | --- | --- | --- | --- |
 | `path` | str \| None | None | HDF5 output path; None = no file output |

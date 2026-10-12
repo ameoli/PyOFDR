@@ -194,12 +194,57 @@ Ref: Erdogan, J. Lightwave Technol. 15, 1277 (1997).
 passive components in `optics/components.py` and the aux MZI.
 
 ### Beat amplitude and scaling
-After the IFFT the main photocurrent comes out as
+After the Fourier sum the main photocurrent comes out as
 
     photocurrent(t) = prefactor * P(t) * Re[beat]
     prefactor = 2 sqrt(eta (1 - eta)) IL_circ^2
 
-with `P(t) = |E_source|^2` instantaneous, not averaged, so the power envelope and RIN reach the detector as a multiplicative modulation on the AC beat. Uses the slow-envelope approximation `sqrt(P(t) P(t-tau)) ~ P(t)`, good while the round-trip delay is much shorter than the envelope timescale.
+Here `P(t) = |E_source|^2` is instantaneous, not averaged, so the power
+envelope and RIN reach the detector as a multiplicative modulation on the
+AC beat. The slow-envelope approximation `sqrt(P(t) P(t-tau)) ~ P(t)` applies
+while the round-trip delay is much shorter than the envelope timescale.
+
+### Sweep duration and sample grids
+
+For requested duration `T` and ADC rate `fs`, samples occur at `t[j] = j/fs`.
+Their count is `N = ceil(T*fs)`, with products within four floating-point ULPs
+of a positive integer treated as that integer. This prevents roundoff from
+adding a sample; genuine fractional counts are retained. Neither `T` nor `fs`
+is adjusted.
+
+With optical span `B`, the fiber grid remains `dz = c/(2*n*B)`. Its coefficient
+at bin `k` contributes `h[k] * exp(2*pi*i*k*t/T)`. An ordinary IFFT evaluates
+this expression only when `T*fs = N`. Otherwise, the main MZI uses ZoomFFT
+with the positive-exponent convention to evaluate the same sum on the actual
+sample times. Transform coefficients are reused across sweeps. The FBG carrier
+also uses `t/T`; its separate ideal-chirp phase approximation is unchanged.
+
+The unpadded FFT grid is different from the fiber grid for fractional counts:
+
+    frequency_step_hz = (B/T) / fs
+    fft_sweep_range_hz = N * frequency_step_hz
+    fft_dz = c / (2*n*fft_sweep_range_hz) = dz * T*fs/N
+
+`Acquisition` and HDF5 output retain these quantities. The DFT span uses `N`
+increments; the frequency difference between first and last samples uses
+`N-1`. These are distinct conventions, not a change to the configured sweep.
+`reflectogram_from_acq` applies `fft_dz` automatically. For array-based calls:
+
+```python
+H, z = fft_reflectogram(acq.digital_main[0], acq.fft_dz)
+# For windowed_xcorr_strain on these unpadded reflectograms:
+# dz=acq.fft_dz, sweep_range_hz=acq.fft_sweep_range_hz
+```
+
+Zero-padding refines the FFT grid further; use the returned `z` spacing and
+scale the DFT span by `n_pad/N` when demodulating that padded reflectogram.
+After k-clock resampling or cropping, calibrate from the new frequency step
+and record length instead of reusing the raw-acquisition scale. For a linear
+sweep, cropping to `M` samples gives `fft_dz * N/M`.
+
+The nonlinear time warp interpolates the correctly sampled ideal beat on
+`acq.t`. Its interpolation error, edge clamping and finite-delay approximation
+are still model limits. The timing correction does not eliminate them.
 
 ### Circulator
 3-port scalar model (`optics/components.py`). Signal passes the circulator twice, so `round_trip_transmission = IL^2` in field = `10^(-IL_dB/10)` in power. Isolation (port1->port3 leakage) lands at zero delay as a DC offset riding P(t); return loss is a reflector sitting in the z=0 bin.

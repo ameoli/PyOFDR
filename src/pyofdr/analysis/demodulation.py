@@ -36,7 +36,8 @@ def fft_reflectogram(beat, dz, window=None, n_pad=None):
     beat : 1-D real array
         Time-domain beat signal (ADC samples, photocurrent, ...).
     dz : float
-        Spatial resolution [m].
+        Unpadded FFT spatial spacing [m]. For raw acquisition samples,
+        use acq.fft_dz; acq.dz describes the fiber construction grid.
     window : str or None
         Tapering window applied before FFT.  'hanning', 'tukey'
         or None (rectangular).
@@ -45,8 +46,9 @@ def fft_reflectogram(beat, dz, window=None, n_pad=None):
 
     Returns
     -------
-    H : 1-D complex array, length n_pad//2
-        One-sided complex reflectogram.
+    H : 1-D complex array, length (N+1)//2
+        One-sided complex reflectogram, with N the FFT length. Excludes
+        the Nyquist bin for even N; odd N has no Nyquist bin to discard.
     z : 1-D float array, same length
         Position axis [m].
     """
@@ -64,16 +66,18 @@ def fft_reflectogram(beat, dz, window=None, n_pad=None):
 
     N = n_pad if n_pad is not None else n
     H = np.fft.fft(beat, n=N)
-    n_half = N // 2
+    n_half = (N + 1) // 2
     # zero-padding refines the grid: bin spacing is dz * n/N, not dz
     z = np.arange(n_half) * dz * (n / N)
     return H[:n_half], z
 
 
 def reflectogram_from_acq(acq, core=0, **kwargs):
-    """Convenience wrapper: extract beat from an Acquisition and FFT it."""
+    """FFT raw ADC samples using their nominal linear-sweep spatial scale."""
     beat = acq.digital_main[core].astype(np.float64)
-    return fft_reflectogram(beat, acq.dz, **kwargs)
+    # Older/manual acquisitions may not carry the sampling calibration.
+    dz = acq.fft_dz if acq.fft_dz > 0 else acq.dz
+    return fft_reflectogram(beat, dz, **kwargs)
 
 
 # ── 2. Phase-difference strain demodulation ──────────────────────────
@@ -252,7 +256,9 @@ def windowed_xcorr_strain(H_meas, H_ref, dz, gauge_length, stride,
         Step between consecutive window centers [m]. Overlap when
         stride < gauge_length.
     sweep_range_hz : float
-        Optical frequency span of the sweep [Hz].
+        DFT optical-frequency span [Hz]. For unpadded raw reflectograms,
+        use acq.fft_sweep_range_hz (N * nominal frequency step). It equals
+        the configured sweep span when sample_rate * duration is integral.
     center_freq : float
         Laser center optical frequency [Hz].
     p_e : float

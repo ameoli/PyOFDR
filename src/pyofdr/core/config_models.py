@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import math
 from typing import Annotated, Literal
 
 from pint import UnitRegistry
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from pyofdr.utils.constants import C as _C
+from pyofdr.utils.sampling import sweep_sample_count
 
 _ureg = UnitRegistry()
 
@@ -455,7 +455,7 @@ class RootConfig(_Strict):
             return self
         fs = self.adc.sample_rate
         n_tau = int(round(aux.delay * fs))
-        n_t = int(math.ceil(self.source.sweep_duration * fs))
+        n_t = sweep_sample_count(self.source.sweep_duration, fs)
         if n_tau < 2:
             raise ValueError(
                 f"optics.aux_mzi.delay ({aux.delay*1e9:.2f} ns) is too short "

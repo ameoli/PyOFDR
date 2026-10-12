@@ -5,6 +5,7 @@ from typing import Any
 import yaml
 from pyofdr.core.config_models import RootConfig
 from pyofdr.utils.constants import C
+from pyofdr.utils.sampling import sweep_sample_count
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -40,7 +41,10 @@ def compute_derived(cfg: dict) -> dict:
     dz = C / (2 * n * delta_nu)      # spatial resolution [m]
     # match what fiber/profile.py and source/swept_laser.py actually do
     n_z = int(math.ceil(L / dz))
-    n_t = int(math.ceil(T_sweep * fs))
+    n_t = sweep_sample_count(T_sweep, fs)
+    frequency_step_hz = gamma / fs
+    fft_sweep_range_hz = n_t * frequency_step_hz
+    fft_dz = C / (2 * n * fft_sweep_range_hz)
 
     # max beat frequency -- needs to be below Nyquist
     f_beat_max = 2 * n * gamma * L / C
@@ -54,6 +58,9 @@ def compute_derived(cfg: dict) -> dict:
         "dz": dz,
         "n_z": n_z,
         "n_t": n_t,
+        "frequency_step_hz": frequency_step_hz,
+        "fft_sweep_range_hz": fft_sweep_range_hz,
+        "fft_dz": fft_dz,
         "f_beat_max": f_beat_max,
         "f_nyquist": fs / 2,
         "linewidth": lw,

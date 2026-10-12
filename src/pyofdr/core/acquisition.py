@@ -11,7 +11,7 @@ class Acquisition:
     sweep_index: int = 0
 
     z: np.ndarray | None = None       # positions along fiber [m]
-    dz: float = 0.0                   # spatial resolution [m]
+    dz: float = 0.0                   # fiber construction grid [m]
 
     # per-core arrays have shape (n_cores, ...). single-core runs use (1, ...).
     fiber_profile: np.ndarray | None = None       # (n_cores, n_z), complex
@@ -20,6 +20,9 @@ class Acquisition:
     t: np.ndarray | None = None       # (n_t,), time samples [s]
     dt: float = 0.0                   # sample interval [s]
     n_samples: int = 0
+    frequency_step_hz: float = 0.0   # nominal linear chirp increment per ADC sample
+    fft_sweep_range_hz: float = 0.0  # N * frequency_step_hz, not (N-1) increments
+    fft_dz: float = 0.0             # unpadded FFT spatial spacing [m]
 
     # laser is shared across cores -> 1D
     E_source: np.ndarray | None = None    # (n_t,), complex optical field
