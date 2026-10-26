@@ -604,7 +604,8 @@ class TestIntegration:
 class TestStrainRecoveryRobustness:
     """Strain recovery via windowed sub-spectrum xcorr must hold across
     realistic detector / gauge combinations. Sweeps shot noise on/off
-    against three gauges (2 mm, 1 cm, 5 cm). Part of #5."""
+    against three gauges (2 mm, 1 cm, 5 cm), with independent acquisition
+    noise on the same fiber. Part of #5 and #105."""
 
     @staticmethod
     def _run_pair(shot_on):
@@ -617,10 +618,15 @@ class TestStrainRecoveryRobustness:
                                  "thermal_nep":  0.0,
                                  "dark_current": 0.0},
                    "source": {**CFG["source"], "linewidth": 0.0}}
-        cfg_str = {**cfg_ref, "strain": {"segments":
+        cfg_str = {**cfg_ref,
+                   "simulation": {**cfg_ref["simulation"], "n_sweeps": 2},
+                   "strain": {"segments":
                    [{"start": 0.3, "end": 0.7, "epsilon": eps_true}]}}
         acq_ref = run_campaign(cfg_ref)[0]
-        acq_str = run_campaign(cfg_str)[0]
+        # Sweep index selects fresh detector/ADC/laser noise; the common base
+        # seed preserves the Rayleigh realization. Do not compare sweep 0
+        # from both campaigns, which reuses the same noise streams.
+        acq_str = run_campaign(cfg_str)[1]
         return acq_ref, acq_str, eps_true
 
     @pytest.mark.parametrize("shot_on",      [False, True])

@@ -448,6 +448,52 @@ or when optimization fails. This is a minimal validity check, not a confidence
 score. Tests use known phase ramps, both shift signs, periodic boundaries,
 and the fractional shift corresponding to a 5 K temperature change.
 
+#### Fractional-lag validation (#105)
+
+The implementation uses fixed 8x coarse localization followed by continuous
+refinement; it does not expose the configurable padding factor proposed in
+the original issue. Validation therefore checks the shipped estimator against
+known shifts, rather than treating a padding-factor sweep as an implemented
+feature.
+
+`tests/test_fractional_lag_validation.py` checks 39 lags from -0.95 to +0.95
+bins and four cases straddling the periodic boundaries, for three Rayleigh
+seeds and window sizes 64 and 488. The circular lag error must be below
+`1e-7` bins. The legacy parabolic method is retained as a negative comparison:
+its maximum error over the 39 interior lags exceeds 0.05 bins for each profile.
+These are noiseless numerical checks, not physical resolution claims.
+
+The same file tests full-pipeline recovery of +/-17 microstrain and +/-5 K
+on a 0.2--0.8 m segment of a 1 m fiber, for two seeds and both detector modes.
+Reference sweep 0 and measurement sweep 1 share the fiber seed. Undoing the
+known perturbation must recover the same complex fiber fingerprint. Subtracting
+each matching noiseless receiver output gives nonzero receiver-noise residuals
+whose absolute Pearson correlation must be below 0.03. Changing the global seed
+would change the fiber too, so it is not a substitute for independent sweeps.
+
+This test uses a linear 40 nm sweep at 1550 nm, 131072 samples at 20 MS/s,
+10 mW laser power, an 8 MHz fourth-order receiver filter, shot noise,
+`1e-12 W/sqrt(Hz)` thermal NEP and `1e-9 A` dark current. The ADC has 18 bits,
+a 0.2 V span and 1000 ohm transimpedance; clipping is checked explicitly.
+For non-overlapping 1 cm gauges wholly inside the segment, the absolute median
+bias must be below 5% of the imposed magnitude and the window RMSE below 10%.
+The median offset before the segment must also be below 5% of that magnitude.
+The existing strain robustness tests additionally use independent sweeps at
+2 mm, 1 cm and 5 cm gauges, with shot noise on and off.
+
+The new tests record numerical errors and recovery/noise metrics as pytest
+JUnit properties. For example:
+
+```bash
+pytest tests/test_fractional_lag_validation.py -o junit_family=xunit1 --junitxml=validation.xml
+```
+
+These finite, reproducible cases cover the regression's receiver-noise regime.
+They do not establish accuracy under fiber decorrelation, phase noise, RIN,
+clipping, arbitrary SNR, or experimental instrument conditions. The original
+issue's configurable-factor proposal is superseded by validation of the fixed
+coarse search plus continuous refinement described above.
+
 ### Quality metrics
 Spatial (`analysis/spatial_metrics.py`): peak SNR, integrated reflected power per region, baseline noise floor, dead-zone.
 Strain (`analysis/strain_quality.py`): RMS error vs ground truth, white and 1/f noise slopes, non-overlapping Allan variance.
