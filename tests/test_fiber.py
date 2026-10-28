@@ -213,8 +213,7 @@ class TestMultipleScattering:
         np.testing.assert_array_equal(a.fiber_profile, b.fiber_profile)
 
     def test_double_bounce_ghost_position_and_amplitude(self):
-        """Two reflectors at z=0 and z=z_b -> ghost at 2*z_b with
-        amplitude sqrt(R_a) * R_b."""
+        """The first ghost crosses the input reflector twice."""
         z_b = 0.3
         R_a, R_b = 0.01, 0.04
         cfg = {**CFG, "fiber": {**CFG["fiber"],
@@ -227,8 +226,8 @@ class TestMultipleScattering:
         # we end up off-by-one when 2*round(x) != round(2*x))
         bin_b = int(round(z_b / acq.dz))
         ghost_bin = 2 * bin_b
-        amp = np.abs(acq.fiber_profile[0, ghost_bin])
-        np.testing.assert_allclose(amp, np.sqrt(R_a) * R_b, atol=1e-10)
+        amp = np.abs(acq.ghost_profile[0, ghost_bin])
+        np.testing.assert_allclose(amp, (1 - R_a) * np.sqrt(R_a) * R_b, atol=1e-10)
 
     def test_no_ghost_when_disabled(self):
         z_b = 0.3
@@ -261,8 +260,7 @@ class TestMultipleScattering:
             FiberGenerator(cfg)
 
     def test_three_reflector_amplitudes(self):
-        """End-to-end physics check: three known reflectors, verify all
-        five distinct order-2 ghost amplitudes against prod sqrt(R)."""
+        """Three reflectors give four bins, including two coincident paths."""
         # carefully spaced so each ghost lands at its own distinct bin
         z_a, z_b, z_c = 0.0, 0.07, 0.19
         R_a, R_b, R_c = 0.01, 0.04, 0.09
@@ -276,17 +274,21 @@ class TestMultipleScattering:
         dz = acq.dz
         Bb = int(round(z_b / dz))
         Bc = int(round(z_c / dz))
-        prof = np.abs(acq.fiber_profile[0])
+        prof = np.abs(acq.ghost_profile[0])
         # (b,a,b) -> 2*Bb, amp sqrt(R_a)*R_b
-        np.testing.assert_allclose(prof[2 * Bb], np.sqrt(R_a) * R_b, atol=1e-10)
+        np.testing.assert_allclose(prof[2 * Bb],
+                                   (1 - R_a) * np.sqrt(R_a) * R_b, atol=1e-10)
         # (c,a,c) -> 2*Bc, amp sqrt(R_a)*R_c
-        np.testing.assert_allclose(prof[2 * Bc], np.sqrt(R_a) * R_c, atol=1e-10)
+        np.testing.assert_allclose(prof[2 * Bc],
+                                   (1 - R_a) * (1 - R_b)**2 * np.sqrt(R_a) * R_c,
+                                   atol=1e-10)
         # (c,b,c) -> 2*Bc - Bb, amp sqrt(R_b)*R_c
         np.testing.assert_allclose(prof[2 * Bc - Bb],
-                                    np.sqrt(R_b) * R_c, atol=1e-10)
+                                    (1 - R_a) * (1 - R_b) * np.sqrt(R_b) * R_c,
+                                    atol=1e-10)
         # (b,a,c) and (c,a,b) both land at Bb+Bc and add coherently:
         # 2 * sqrt(R_a) * sqrt(R_b) * sqrt(R_c)
-        expected = 2.0 * np.sqrt(R_a * R_b * R_c)
+        expected = 2.0 * (1 - R_a) * (1 - R_b) * np.sqrt(R_a * R_b * R_c)
         np.testing.assert_allclose(prof[Bb + Bc], expected, atol=1e-10)
 
     def test_higher_order_adds_extra_paths(self):
@@ -302,7 +304,7 @@ class TestMultipleScattering:
                 "multiple_scattering": {"max_order": 3}}}
         a = FiberGenerator(cfg2).process(Acquisition())
         b = FiberGenerator(cfg3).process(Acquisition())
-        diff = np.abs(np.abs(b.fiber_profile) - np.abs(a.fiber_profile)).max()
+        diff = np.abs(b.ghost_profile - a.ghost_profile).max()
         assert diff > 0
 
 
@@ -550,10 +552,9 @@ class TestVaryingAttenuation:
         a = self._run(segs, base=0.5)
         b = FiberGenerator({**CFG, "fiber": {**CFG["fiber"],
              "attenuation_dB_per_km": 0.5}}).process(Acquisition())
-        # numerical: varying path uses cumsum*dz, constant uses alpha*z,
-        # off by one bin -- allow 1e-6 tolerance
+        # A constant segment must integrate just like the scalar loss.
         np.testing.assert_allclose(a.attenuation_envelope,
-                                    b.attenuation_envelope, rtol=1e-4)
+                                    b.attenuation_envelope, rtol=1e-12)
 
 
 class TestIndexPerturbation:

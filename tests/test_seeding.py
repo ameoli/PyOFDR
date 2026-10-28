@@ -32,7 +32,7 @@ def test_neighboring_campaign_seeds_do_not_reuse_sweeps():
 
 def test_long_campaign_seeds_are_distinct():
     components = ["fiber", "laser", "detector", "adc", "crosstalk",
-                  "index_fluctuations"]
+                  "index_fluctuations", "reflectors"]
     seeds = set()
     for component in components:
         for core in range(2):

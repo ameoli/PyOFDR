@@ -55,8 +55,8 @@ Do not retain completed acquisitions in a step: that would defeat streaming.
 
 | Stage | Main fields it supplies or updates |
 | --- | --- |
-| `FiberGenerator` | `z`, `dz`, `fiber_profile`, `attenuation_envelope` |
-| Strain and temperature | `fiber_profile`, applied perturbation fields |
+| `FiberGenerator` | `z`, `dz`, `fiber_profile`, `attenuation_envelope`, `ghost_profile` |
+| Strain and temperature | `fiber_profile`, `ghost_profile`, applied perturbation fields |
 | `SweptLaser` | `t`, `dt`, `n_samples`, `E_source`, frequency arrays |
 | `MachZehnder` | `photocurrent_main` (optical beat power, despite the name) |
 | `AuxMZI` | `aux_signal`, `aux_valid_start` when enabled |
@@ -72,7 +72,9 @@ The HDF5 writer in `output/` is a thin layer on top.
 
 Array fields start as `None` until the relevant stage supplies them. Main-channel
 arrays have shape `(n_cores, n_samples)`; `fiber_profile` has shape
-`(n_cores, n_z)`. The laser and auxiliary signal are shared across cores and
+`(n_cores, n_z)`, as does the optional `ghost_profile`. Ghosts already include
+their path losses and are added after weighting the direct profile by
+`attenuation_envelope`. The laser and auxiliary signal are shared across cores and
 use one-dimensional arrays. Call `acq.add_log(name, ...)` for per-sweep
 metadata. Adding a dataclass field alone does not save it to HDF5: datasets
 are written explicitly in `output/hdf5_writer.py`.

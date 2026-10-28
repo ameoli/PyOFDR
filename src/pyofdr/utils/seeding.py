@@ -16,6 +16,7 @@ _COMPONENT_IDS = {
     "adc":                 3,
     "crosstalk":           4,
     "index_fluctuations":  5,
+    "reflectors":          6,
 }
 
 

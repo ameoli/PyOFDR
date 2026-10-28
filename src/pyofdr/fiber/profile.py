@@ -7,11 +7,13 @@ from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.pipeline import PipelineStep
-from pyofdr.fiber.attenuation import round_trip_attenuation, round_trip_attenuation_varying
+from pyofdr.fiber.attenuation import (
+    cumulative_loss_dB, round_trip_attenuation, round_trip_attenuation_varying,
+)
 from pyofdr.fiber.bends import bend_loss_total_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
-from pyofdr.fiber.reflectors import apply_connector_losses, inject_reflectors
+from pyofdr.fiber.reflectors import apply_connector_losses, inject_reflectors, reflector_bin
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
 from pyofdr.utils.units import dB_to_linear, wavelength_range_to_freq_range
@@ -34,7 +36,7 @@ class FiberGenerator(PipelineStep):
         self.attenuation_dB_km = fiber["attenuation_dB_per_km"]
         self.attenuation_segments = fiber.get("attenuation_segments", [])
         self.bends = fiber.get("bends", [])
-        self.reflectors = fiber.get("reflectors", [])
+        self.reflectors = sorted(fiber.get("reflectors", []), key=lambda r: r["z"])
         self.index_segments = fiber.get("index_segments", [])
         self.index_fluctuations = fiber.get("index_fluctuations", None)
         self.crosstalk = fiber.get("crosstalk", None)
@@ -51,6 +53,7 @@ class FiberGenerator(PipelineStep):
         self._cached_dz = None
         self._cached_profile = None
         self._cached_atten = None
+        self._cached_ghosts = None
 
     def process(self, acq: Acquisition) -> Acquisition:
         if self._cached_profile is not None:
@@ -59,6 +62,7 @@ class FiberGenerator(PipelineStep):
             acq.dz = self._cached_dz
             acq.fiber_profile = self._cached_profile
             acq.attenuation_envelope = self._cached_atten
+            acq.ghost_profile = self._cached_ghosts
             return acq
 
         xp = self.bk.xp
@@ -95,20 +99,20 @@ class FiberGenerator(PipelineStep):
         profile = xp.stack(parts)
 
         # discrete reflectors (connectors, splices, etc)
+        reflection = None
         if self.reflectors:
-            inject_reflectors(profile, z, dz, self.reflectors, xp=xp)
-
-        # cascading multi-bounce ghosts between those reflectors (#35).
-        # added before the per-bin index phase so each ghost picks up
-        # the same phi_n at its apparent bin -- a small-perturbation
-        # approximation (ghost path is longer than 2*z_app, so strictly
-        # the phase is not phi_n[bin_app]; ok while delta_n stays small).
-        if self.multiple_scattering is not None and self.reflectors:
-            add_ghost_reflections(
-                profile, dz, self.reflectors,
-                max_order=self.multiple_scattering["max_order"],
-                xp=xp,
-            )
+            bins = [reflector_bin(r, dz, n_z) for r in self.reflectors]
+            if len(set(bins)) != len(bins):
+                raise ValueError("discrete reflectors must occupy distinct spatial bins")
+            amps = xp.asarray([math.sqrt(r["R"]) for r in self.reflectors])
+            reflection = xp.empty((self.n_cores, len(amps)), dtype=xp.complex128)
+            for c in range(self.n_cores):
+                rng = self.bk.random_generator(
+                    derive_seed(self.seed, component="reflectors", core=c))
+                phase = rng.uniform(0.0, 2.0 * math.pi, len(amps))
+                reflection[c] = amps * xp.exp(1j * phase)
+            inject_reflectors(profile, z, dz, self.reflectors,
+                              reflection=reflection, xp=xp)
 
         # small-signal n(z) perturbation -- each scatterer at z picks up
         # a round-trip phase from the integrated delta_n up to z. Two
@@ -142,6 +146,7 @@ class FiberGenerator(PipelineStep):
                 dn_rand[k] = a * dn_rand[k-1] + scale * eta[k]
             delta_n = dn_rand if delta_n is None else delta_n + dn_rand
 
+        phi_n = None
         if delta_n is not None:
             k0 = 2.0 * math.pi / self.center_wl
             phi_n = 2.0 * k0 * xp.cumsum(delta_n) * dz
@@ -180,23 +185,46 @@ class FiberGenerator(PipelineStep):
                 mask = (z >= bend["start"]) & (z < bend["end"])
                 alpha_z = xp.where(mask, alpha_z + extra_dB_km, alpha_z)
             attenuation = round_trip_attenuation_varying(z, alpha_z, dz, xp=xp)
+            loss_to_z = cumulative_loss_dB(alpha_z, dz, xp=xp)
         else:
             attenuation = round_trip_attenuation(z, self.attenuation_dB_km, xp=xp)
+            loss_to_z = z * (self.attenuation_dB_km / 1000.0)
 
         # connector insertion losses (step-downs in the envelope)
         if self.reflectors:
             apply_connector_losses(attenuation, dz, self.reflectors, xp=xp)
 
+        ghosts = None
+        if self.multiple_scattering is not None and self.reflectors:
+            ghosts = xp.zeros_like(profile)
+            add_ghost_reflections(
+                ghosts, dz, self.reflectors, reflection=reflection,
+                loss_to_z=loss_to_z,
+                max_order=self.multiple_scattering["max_order"], xp=xp,
+            )
+            # Index/strain/temperature still use the apparent-bin phase.
+            if phi_n is not None:
+                ghosts *= xp.exp(1j * phi_n)
+            if self.crosstalk is not None and self.n_cores > 1:
+                rng_xt = self.bk.random_generator(
+                    derive_seed(self.seed, component="crosstalk"))
+                ghosts = apply_crosstalk(
+                    ghosts, z, self.crosstalk["xt_dB_per_km"],
+                    self.crosstalk["topology"], rng_xt, xp=xp,
+                )
+
         acq.z = z
         acq.dz = dz
         acq.fiber_profile = profile
         acq.attenuation_envelope = attenuation
+        acq.ghost_profile = ghosts
 
         # cache so subsequent sweeps reuse the same fiber
         self._cached_z = z
         self._cached_dz = dz
         self._cached_profile = profile
         self._cached_atten = attenuation
+        self._cached_ghosts = ghosts
 
         acq.add_log("fiber", n_z=n_z, dz_mm=dz * 1e3,
                      attenuation_dB_km=self.attenuation_dB_km,

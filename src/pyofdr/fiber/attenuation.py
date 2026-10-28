@@ -37,8 +37,14 @@ def round_trip_attenuation_varying(z, alpha_dB_km_z, dz, xp=np):
     per spatial bin. Left-Riemann cumulative integral, so the per-bin
     discretization error is O(dz * d(alpha)/dz). For typical SMF
     (alpha ~ 0.2 dB/km, dz ~ mm) this is ~1e-6 dB, well below any
-    realistic loss budget. Step discontinuities in alpha land on the
-    left of the jumping bin rather than straddling it.
+    realistic loss budget. The loss at bin k applies to [z[k], z[k+1]).
     """
-    alpha_np = dB_per_km_to_neper_per_m(alpha_dB_km_z)
-    return xp.exp(-xp.cumsum(alpha_np) * dz)
+    loss_dB = cumulative_loss_dB(alpha_dB_km_z, dz, xp=xp)
+    return xp.exp(-loss_dB * _LN10 / 10.0)
+
+
+def cumulative_loss_dB(alpha_dB_km_z, dz, xp=np):
+    """One-way distributed loss from the input to each bin, in dB."""
+    loss = xp.zeros_like(alpha_dB_km_z, dtype=float)
+    loss[1:] = xp.cumsum(alpha_dB_km_z[:-1]) * (dz / 1000.0)
+    return loss
