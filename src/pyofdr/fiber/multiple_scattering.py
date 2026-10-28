@@ -1,104 +1,84 @@
-"""Cascading multi-bounce ghost reflections from discrete reflectors (#35).
-
-Light reflected by one strong reflector can be re-scattered by another and
-end up back at the detector via a longer optical path. Each such path
-appears in the OFDR signal as a ghost peak at an apparent depth set by
-the round-trip geometry.
-
-For an order-N path (2N-1 reflection events) with reflector indices
-(i_0, i_1, ..., i_{2N-2}) the apparent depth and amplitude are
-
-    z_app = z_{i_0} - z_{i_1} + z_{i_2} - ... + z_{i_{2N-2}}
-    a     = prod sqrt(R_{i_m})
-
-with the trajectory constraint that every odd-indexed reflector (the
-"valleys" where the light bounces back forward) sits strictly below both
-of its neighbours: z_{i_{2m+1}} < z_{i_{2m}} and z_{i_{2m+1}} < z_{i_{2m+2}}.
-
-The continuum Rayleigh-Rayleigh background is several orders of magnitude
-weaker in standard SMF -- tracked separately in #79.
-"""
+"""Multi-bounce returns from discrete reflectors."""
 
 from __future__ import annotations
 
 import itertools
 import math
-from typing import Any
 
 import numpy as np
 
+from pyofdr.fiber.reflectors import reflector_bin
+
 
 def add_ghost_reflections(
-    profile: np.ndarray,
-    dz: float,
-    reflectors: list[dict[str, Any]],
-    *,
-    max_order: int = 2,
-    xp=np,
-) -> np.ndarray:
-    """Inject multi-bounce ghost peaks on top of the existing profile.
+    profile, dz, reflectors, *, max_order=2, reflection=None,
+    loss_to_z=None, xp=np,
+):
+    """Add ghosts with all path losses already included, in-place.
 
-    Ghosts whose apparent bin falls outside [0, n_z) are dropped --
-    extending the array to 2L would change a lot of downstream code,
-    so for now we only model ghosts that land within the fiber range.
-    For the canonical input-connector + end-face case the user can pad
-    the fiber length so 2L_eff stays inside the array.
-
-    Bin convention: each reflector z is rounded to its bin first, then
-    the apparent bin is the signed sum of those bins (NOT round(z_app/dz)
-    of the real-valued sum -- the two differ by at most 1).
-
-    Caveat: if an interior "valley" reflector carries a non-zero loss_dB,
-    the per-bin attenuation envelope undercounts the actual loss along
-    a ghost path (the ghost crosses the valley twice). For typical OFDR
-    setups -- where the loss reflector is the input connector at z=0 --
-    this is exact.
+    Order N has 2N-1 reflections. Positions are snapped before forming
+    the apparent bin; ghosts outside the array are dropped.
+    loss_to_z is the cumulative one-way distributed loss in dB, without
+    connector losses. reflection contains the left-side coefficients,
+    with shape (n_cores, n_reflectors).
     """
     if max_order < 2 or len(reflectors) < 2:
         return profile
 
-    n_z = profile.shape[-1]
+    n_cores, n_z = profile.shape
+    selected = sorted(
+        (i for i, r in enumerate(reflectors)
+         if 0 <= reflector_bin(r, dz, n_z) < n_z),
+        key=lambda i: reflectors[i]["z"],
+    )
+    refs = [reflectors[i] for i in selected]
+    bins = [reflector_bin(r, dz, n_z) for r in refs]
+    if len(set(bins)) != len(bins):
+        raise ValueError("discrete reflectors must occupy distinct spatial bins")
+    if reflection is None:
+        reflection = xp.tile(xp.asarray([math.sqrt(r["R"]) for r in refs]),
+                             (n_cores, 1))
+    else:
+        reflection = reflection[:, selected]
 
-    def _bin(r):
-        b = int(round(r["z"] / dz))
-        if b == n_z and r["z"] <= n_z * dz:
-            b = n_z - 1   # end-face clamp, must match inject_reflectors (#84)
-        return b
+    # Node 0 is the input, before a possible reflector at z=0.
+    losses = [0.0] + [0.0 if loss_to_z is None else float(loss_to_z[b])
+                      for b in bins]
+    extra = [10.0 ** (-r.get("loss_dB", 0.0) / 20.0) for r in refs]
+    transmission = [math.sqrt(1.0 - r["R"]) * q for r, q in zip(refs, extra)]
+    n_r = len(refs)
+    travel = [[1.0] * (n_r + 1) for _ in range(n_r + 1)]
+    for i in range(n_r + 1):
+        for j in range(i + 1, n_r + 1):
+            factor = 10.0 ** (-abs(losses[j] - losses[i]) / 20.0)
+            for k in range(i + 1, j):
+                factor *= transmission[k - 1]
+            travel[i][j] = travel[j][i] = factor
 
-    # drop reflectors whose bin sits outside [0, n_z): they were skipped
-    # by inject_reflectors so they don't actually reflect, can't seed ghosts
-    in_range = [r for r in reflectors if 0 <= _bin(r) < n_z]
-    if len(in_range) < 2:
-        return profile
-    bins = [_bin(r) for r in in_range]
-    amps = [math.sqrt(r["R"]) for r in in_range]
-    n_r = len(in_range)
-
-    # enumerate orders 2..max_order. each order N has 2N-1 reflection
-    # events; itertools.product is in C so the loop body is the only
-    # thing that runs in Python.
-    for N in range(2, max_order + 1):
-        path_len = 2 * N - 1
-        for path in itertools.product(range(n_r), repeat=path_len):
-            # valley constraint -- every odd-position reflector must sit
-            # strictly below both neighbours
-            valid = True
-            for m in range(1, path_len, 2):
-                v = bins[path[m]]
-                if v >= bins[path[m - 1]] or v >= bins[path[m + 1]]:
-                    valid = False
-                    break
-            if not valid:
+    active = [i for i, r in enumerate(refs) if r["R"] > 0]
+    for order in range(2, max_order + 1):
+        for path in itertools.product(active, repeat=2 * order - 1):
+            if any(bins[path[m]] >= bins[path[m - 1]]
+                   or bins[path[m]] >= bins[path[m + 1]]
+                   for m in range(1, len(path), 2)):
                 continue
-            # signed sum -> apparent depth bin
-            b = 0
-            for i, idx in enumerate(path):
-                b += bins[idx] if i % 2 == 0 else -bins[idx]
-            if b < 0 or b >= n_z:
+            b = sum(bins[idx] if m % 2 == 0 else -bins[idx]
+                    for m, idx in enumerate(path))
+            if not 0 <= b < n_z:
                 continue
-            amp = 1.0
-            for idx in path:
-                amp *= amps[idx]
+
+            amp = xp.ones(n_cores, dtype=xp.complex128)
+            previous = 0
+            for m, idx in enumerate(path):
+                amp *= travel[previous][idx + 1]
+                if m % 2 == 0:
+                    # The extra loss sits on the left of the interface.
+                    amp *= reflection[:, idx] * extra[idx] ** 2
+                else:
+                    # Real transmission fixes the reverse reflection phase.
+                    amp *= -xp.conj(reflection[:, idx])
+                previous = idx + 1
+            amp *= travel[previous][0]
             profile[:, b] += amp
 
     return profile

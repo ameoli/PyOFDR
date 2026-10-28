@@ -105,7 +105,13 @@ outside the table clamp to the edge with a warning).
 | --- | --- | --- | --- |
 | `z` | length | -- | position along the fiber |
 | `R` | float in [0, 1] | -- | power reflectivity |
-| `loss_dB` | float >= 0 | 0.0 | one-way insertion loss at the reflector |
+| `loss_dB` | float >= 0 | 0.0 | extra one-way loss on the input side of the reflecting interface |
+
+Each reflector gets a seeded phase per core, fixed across sweeps. Direct
+returns beyond it include the round-trip field transmission `1-R` as well as
+`loss_dB`. Reflectors must occupy distinct bins after spatial rounding.
+`loss_dB` excludes the power removed by reflection; see the phase and loss
+conventions in [the theory guide](theory.md#discrete-reflectors-and-connectors).
 
 ### fiber.fbg_arrays[]
 
@@ -158,7 +164,7 @@ Full coupled-mode equations in #69.
 ### fiber.multiple_scattering
 
 Cascading multi-bounce ghosts between discrete reflectors (#35). Order N
-enumerates paths with 2N+1 reflection events; N=2 is the dominant case
+enumerates paths with 2N-1 reflection events; N=2 is the dominant case
 (e.g. input connector + end face -> ghost at `2*z_b - z_a`).
 
 | field | type | default | description |

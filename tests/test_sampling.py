@@ -67,7 +67,8 @@ def test_reflector_matches_physical_chirp(count, bin_index):
     position = cfg["fiber"]["reflectors"][0]["z"]
     frequency = 2 * cfg["fiber"]["n_core"] * position * span / (C * T)
     amplitude = 2 * 0.01 * np.sqrt(0.4 * 0.6 * 1e-4)
-    expected = amplitude * np.cos(2 * np.pi * frequency * acq.t)
+    phase = np.angle(acq.fiber_profile[0, bin_index])
+    expected = amplitude * np.cos(2 * np.pi * frequency * acq.t + phase)
     np.testing.assert_allclose(acq.photocurrent_main[0], expected, rtol=0, atol=amplitude * 1e-9)
     np.testing.assert_allclose(acq.t, np.arange(acq.n_samples) / fs, rtol=5e-16, atol=0)
     assert acq.t[-1] < T
@@ -86,9 +87,10 @@ def test_complex_multicore_profile_matches_direct_sum(count):
         profile = 0.01 * (rng.normal(size=acq.fiber_profile.shape)
                           + 1j * rng.normal(size=acq.fiber_profile.shape))
         acq.fiber_profile = profile.copy()
+        weighted = profile * acq.attenuation_envelope
         expected = np.zeros((2, acq.n_samples), dtype=complex)
         for k in range(profile.shape[1]):
-            expected += profile[:, k, None] * np.exp(2j * np.pi * k * acq.t / 1e-4)
+            expected += weighted[:, k, None] * np.exp(2j * np.pi * k * acq.t / 1e-4)
         prefactor = 2 * np.sqrt(0.4 * 0.6) * np.abs(acq.E_source)**2
         expected = prefactor * expected.real
         acq = optics.process(acq)
@@ -134,11 +136,13 @@ def test_nonlinear_warp_uses_physical_time_grid(a2):
     s = acq.t + a2 * acq.t**2 / (span / T)
     amplitude = 2 * 0.01 * np.sqrt(0.4 * 0.6 * 1e-4)
     # Separate the sampling correction from the existing linear interpolation error.
-    expected_interpolated = np.interp(s, acq.t, amplitude * np.cos(2 * np.pi * 16 * acq.t / T))
+    phase = np.angle(acq.fiber_profile[0, 16])
+    expected_interpolated = np.interp(
+        s, acq.t, amplitude * np.cos(2 * np.pi * 16 * acq.t / T + phase))
     np.testing.assert_allclose(acq.photocurrent_main[0], expected_interpolated,
                                rtol=0, atol=amplitude * 1e-9)
     inside = (s >= acq.t[0]) & (s <= acq.t[-1])
-    exact = amplitude * np.cos(2 * np.pi * 16 * s[inside] / T)
+    exact = amplitude * np.cos(2 * np.pi * 16 * s[inside] / T + phase)
     rms = np.sqrt(np.mean((acq.photocurrent_main[0, inside] - exact)**2)) / amplitude
     assert rms < 1e-4
 

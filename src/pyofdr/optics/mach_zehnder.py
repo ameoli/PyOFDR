@@ -90,6 +90,8 @@ class MachZehnder(PipelineStep):
         weighted = acq.fiber_profile
         if acq.attenuation_envelope is not None:
             weighted = weighted * acq.attenuation_envelope
+        if acq.ghost_profile is not None:
+            weighted = weighted + acq.ghost_profile
 
         # laser coherence roll-off: for a Lorentzian-linewidth laser each
         # scatterer at round-trip delay tau = 2*n*z/c sees its beat amplitude

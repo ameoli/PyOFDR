@@ -48,7 +48,7 @@ class SimulationConfig(_Strict):
 class ReflectorEntry(_Strict):
     z: Length
     R: float = Field(..., ge=0, le=1)
-    loss_dB: float = Field(0.0, ge=0)   # one-way insertion loss [dB]
+    loss_dB: float = Field(0.0, ge=0)   # extra one-way loss on the input side [dB]
 
 
 class FBGEntry(_Strict):
@@ -161,7 +161,7 @@ class CrosstalkConfig(_Strict):
 class MultipleScatteringConfig(_Strict):
     """Cascading multi-bounce ghosts between discrete reflectors (#35).
 
-    Order N enumerates paths with 2N+1 reflection events; the dominant
+    Order N enumerates paths with 2N-1 reflection events; the dominant
     case is N=2 (e.g. input connector + end face -> ghost at 2*z_b-z_a).
     Continuum Rayleigh-Rayleigh background is tracked in #79 -- it sits
     well below shot/RIN/thermal in standard SMF.

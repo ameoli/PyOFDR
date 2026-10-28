@@ -12,7 +12,7 @@ For a perfectly linear sweep the beat frequency of a scatterer at distance
 index, `gamma = delta_nu / T_sweep` the chirp rate, factor 2 for the round
 trip. The whole time-domain beat is then the inverse transform of the
 attenuation weighted fiber profile:
-    s(t) = IFFT[ profile(z) * attenuation(z) ] * n_samples
+    s(t) = IFFT[ profile(z) * attenuation(z) + ghosts(z) ] * n_samples
 
 (`optics/mach_zehnder.py`). O(N log N) instead of the O(N^2) of a
 per-scatterer sum, and exact while the chirp stays linear. Mode hops and
@@ -91,15 +91,73 @@ Ref: Marcuse, "Curvature loss formula for optical fibers", JOSA 66, 216
 (1976).
 
 ### Discrete reflectors and connectors
-A point reflector just adds `sqrt(R)` into its bin of the profile (`fiber/reflectors.py`). A connector insertion loss is a multiplicative step on the envelope, `envelope[idx:] *= 10^(-loss_dB/10)`. Exponent /10 and not /20 because of the round-trip convention above.
+A point reflector adds `r = sqrt(R) exp(j phi)` at its nearest spatial bin
+(`fiber/reflectors.py`). Each core has its own seeded reflector phases, drawn
+once and reused across sweeps. This stream is separate from the Rayleigh RNG.
+Reflectors are sorted by position before drawing phases. Two entries that
+round to the same bin are rejected: their internal ordering is not resolved.
+
+We choose real field transmission `t = sqrt(1-R)`. Reflection from the right
+is then `-conj(r)`, so the lossless interface has the reciprocal, unitary
+matrix `[[r, t], [t, -conj(r)]]`. This fixes the relative phases of direct
+returns and ghosts; the phases of separate bounces are not drawn independently.
+For the underlying two-port constraints, see the scattering-matrix discussion
+in [Karlsson's electrodynamics notes, section 3.7](https://www.eit.lth.se/fileadmin/eit/courses/eitn80/root.pdf).
+
+`loss_dB` is an extra matched loss just before the interface, on its input
+(smaller-z) side. Writing `q = 10^(-loss_dB/20)`, the left reflection is
+`q^2 r`, right reflection is `-conj(r)`, and transmission is `q t` in either
+direction. This preserves the earlier convention that a direct reflection
+sees its own insertion loss twice. It also avoids counting the reflected
+fraction twice: `loss_dB` is additional to the loss of transmitted power `R`.
+
+The direct-return envelope includes `1-R` beyond each reflector and
+`10^(-loss_dB/10)` from its bin onwards. The reflector's own return does not
+cross its interface. Rayleigh and weak-FBG returns at that same bin use the
+upstream-side convention. With `R=1`, all later direct returns vanish.
 
 ### Multiple-scattering ghosts
-Light reflected by one strong reflector can bounce off another and come back via a longer path, showing up as a ghost peak
-(`fiber/multiple_scattering.py`). For an order-N path (2N-1 reflection events) the apparent depth and amplitude are
+Light can bounce between discrete reflectors and return at a later delay
+(`fiber/multiple_scattering.py`). An order-N path has `2N-1` reflections and
+apparent depth
+
     z_app = z_i0 - z_i1 + z_i2 - ... + z_i(2N-2)
-    a     = prod sqrt(R_im)
-with the constraint that every odd "valley" reflector sits strictly below both neighbours. Ghosts whose apparent bin falls outside `[0, n_z)`
-are dropped, extending the array to 2L would touch too much downstream code. The continuum Rayleigh-Rayleigh double-scatter floor is much weaker in standard SMF and tracked separately in #79.
+
+Every odd "valley" must sit strictly below both neighbours. Positions are
+rounded to bins before forming this sum. Each path multiplies the directional
+reflection coefficients and the transmission of every intervening interface,
+including the initial trip from the input and the final trip back.
+
+Distributed loss is integrated from the input to each bin. Its value at zero
+is zero; the loss assigned to bin k applies to `[z[k], z[k+1])`. For each path
+leg, the difference of these cumulative losses gives the one-way loss of that
+leg. Summing the legs and converting with `10^(-path_loss_dB/20)` gives the
+field attenuation. Segments and bends therefore count on every crossing.
+For uniform loss this agrees with a total distance `2*z_app`; for nonuniform
+loss, the visited sections matter.
+
+For example, the first ghost of two lossless interfaces at `a < b` is
+`-(1-R_a) conj(r_a) r_b^2` at `2*b-a`, before distributed attenuation.
+The two paths `(b,a,c)` and `(c,a,b)` share a delay and add coherently.
+
+`Acquisition.ghost_profile` stores these already attenuated returns separately.
+The optics step adds them to `fiber_profile * attenuation_envelope`, then
+applies the usual coherence roll-off and beat transform. Dividing by the
+direct envelope would fail behind an opaque reflector or an underflowed loss,
+even when a shorter physical path still produces a ghost at that delay.
+
+The expansion still stops at `max_order` (2 or 3), and out-of-range ghosts
+are dropped. It is a finite-bounce model, not a converged high-finesse cavity
+solver. Index, strain and temperature perturbations still use the phase at
+the apparent bin, so nonuniform perturbations along a ghost path remain an
+approximation. Rayleigh-mediated multiple scattering is outside this model.
+
+`tests/test_reflector_paths.py` checks complex two-mirror amplitudes, repeated
+crossings, localized loss, opaque interfaces, sweep reproducibility and the
+optics sum. A separate frequency-domain recursion sums the infinite series
+for three weak mirrors; its impulse response must agree within `1e-10` field
+amplitude, where omitted orders are below that tolerance. These are numerical
+checks of the scalar model, not experimental validation.
 
 ### Strain
 A scatterer at z picks up an extra round-trip phase from the integrated strain (`fiber/strain.py`):

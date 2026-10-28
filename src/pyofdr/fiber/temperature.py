@@ -72,6 +72,8 @@ class TemperaturePerturbation(PipelineStep):
         # incoming profile so a dynamic upstream step still composes
         if not self._has_motion and self._cached_phase is not None:
             acq.fiber_profile = acq.fiber_profile * xp.exp(1j * self._cached_phase)
+            if acq.ghost_profile is not None:
+                acq.ghost_profile = acq.ghost_profile * xp.exp(1j * self._cached_phase)
             acq.temperature_field = self._cached_dT
             return acq
 
@@ -93,6 +95,8 @@ class TemperaturePerturbation(PipelineStep):
 
         acq.temperature_field = dT
         acq.fiber_profile = acq.fiber_profile * xp.exp(1j * phase)
+        if acq.ghost_profile is not None:
+            acq.ghost_profile = acq.ghost_profile * xp.exp(1j * phase)
 
         if not self._has_motion:
             self._cached_phase = phase

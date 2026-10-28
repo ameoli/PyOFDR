@@ -57,6 +57,8 @@ class StrainPerturbation(PipelineStep):
         self._cached_profile = None
         self._cached_strain = None
         self._cached_base_profile = None    # base (unstrained) profile reference
+        self._cached_base_ghosts = None
+        self._cached_ghosts = None
 
         # sweep-rate sampling sanity check. motion-specific thresholds
         # (Nyquist for harmonic, tau/width > 2*T_sweep for thermal/impulsive)
@@ -73,6 +75,7 @@ class StrainPerturbation(PipelineStep):
         # static case: cache strained profile, reuse it across sweeps
         if not self._has_motion and self._cached_profile is not None:
             acq.fiber_profile = self._cached_profile
+            acq.ghost_profile = self._cached_ghosts
             acq.strain_field = self._cached_strain
             return acq
 
@@ -87,6 +90,7 @@ class StrainPerturbation(PipelineStep):
         # the phase to the fresh profile, not to an already-strained one.
         if self._cached_base_profile is None:
             self._cached_base_profile = acq.fiber_profile
+            self._cached_base_ghosts = acq.ghost_profile
         base_profile = self._cached_base_profile
 
         # freeze motion at the sweep's lab time
@@ -104,9 +108,12 @@ class StrainPerturbation(PipelineStep):
         acq.strain_field = eps_fiber
         # uniform axial strain affects every core the same way
         acq.fiber_profile = base_profile * xp.exp(1j * phase)
+        if self._cached_base_ghosts is not None:
+            acq.ghost_profile = self._cached_base_ghosts * xp.exp(1j * phase)
 
         if not self._has_motion:
             self._cached_profile = acq.fiber_profile
+            self._cached_ghosts = acq.ghost_profile
             self._cached_strain = eps_fiber
 
         acq.add_log("strain",

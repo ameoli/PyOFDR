@@ -16,6 +16,7 @@ class Acquisition:
     # per-core arrays have shape (n_cores, ...). single-core runs use (1, ...).
     fiber_profile: np.ndarray | None = None       # (n_cores, n_z), complex
     attenuation_envelope: np.ndarray | None = None  # (n_z,), float
+    ghost_profile: np.ndarray | None = None       # (n_cores, n_z), already attenuated
 
     t: np.ndarray | None = None       # (n_t,), time samples [s]
     dt: float = 0.0                   # sample interval [s]
