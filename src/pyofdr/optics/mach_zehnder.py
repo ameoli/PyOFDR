@@ -6,8 +6,9 @@ z-transform on the actual ADC times. Both avoid a dense Fourier sum.
 
 When the laser has sweep nonlinearity (a2, a3, ripple), each scatterer's
 beat frequency wobbles in the same way. This is equivalent to a
-time-warp of the ideal linear beat signal. The warp is computed from
-the integrated frequency deviation, then applied via linear interpolation.
+time-warp of the ideal linear beat signal. The warp comes from the
+instantaneous frequency deviation. An oversampled Fourier sum and a
+periodic spline evaluate it without attenuating beats near ADC Nyquist.
 
 Slow (flicker / random-walk) laser frequency noise rides on the sweep
 exactly like a ripple, so the same time-warp absorbs it stochastically:
@@ -25,6 +26,8 @@ import warnings
 from typing import Any
 
 import numpy as np
+from scipy.fft import next_fast_len
+from scipy.ndimage import map_coordinates
 from scipy.signal import ZoomFFT
 
 from pyofdr.core.acquisition import Acquisition
@@ -115,7 +118,9 @@ class MachZehnder(PipelineStep):
 
         samples_per_sweep = self.sweep_duration / acq.dt
         integer_sweep = abs(samples_per_sweep - acq.n_samples) <= 4 * math.ulp(samples_per_sweep)
-        if integer_sweep:
+        if self._has_nonlinearity:
+            beat = self._apply_time_warp(weighted, acq)
+        elif integer_sweep:
             n_pad = acq.n_samples - n_z
             h = xp.concatenate([
                 weighted.astype(xp.complex128),
@@ -131,12 +136,6 @@ class MachZehnder(PipelineStep):
                 self._beat_transform = ZoomFFT(n_z, [0, end], m=acq.n_samples, fs=1.0)
                 self._beat_transform_key = key
             beat = xp.conj(self._beat_transform(xp.conj(weighted), axis=-1))
-
-        # time-warp for sweep nonlinearity: if the chirp rate varies,
-        # each scatterer's beat freq scales by dnu/dt / gamma. This is
-        # equivalent to resampling the ideal beat at warped time indices.
-        if self._has_nonlinearity:
-            beat = self._apply_time_warp(beat, acq)
 
         # weak FBG arrays. added after the time-warp so the sinc envelope
         # uses the actual nu_inst; the phase term doesn't get warped, but
@@ -187,8 +186,8 @@ class MachZehnder(PipelineStep):
                      n_fbgs=len(self.fbg_arrays))
         return acq
 
-    def _apply_time_warp(self, beat, acq):
-        """Resample the ideal-chirp beat to account for sweep nonlinearity.
+    def _apply_time_warp(self, weighted, acq):
+        """Evaluate the weighted fiber's Fourier sum at the warped times.
 
         For a scatterer at round-trip delay tau the physical beat phase
         is 2*pi*tau*nu(t) (small tau), while the ideal-chirp beat at time
@@ -204,7 +203,6 @@ class MachZehnder(PipelineStep):
         T = src["sweep_duration"]
         gamma = wavelength_range_to_freq_range(wl, dwl) / T
 
-        dt = acq.dt
         n = acq.n_samples
         t = acq.t
 
@@ -236,24 +234,33 @@ class MachZehnder(PipelineStep):
         # warped time: where in the "ideal" timeline each real sample falls
         s = t + delta_nu / gamma
 
-        # np.interp just clamps past [t[0], t[-1]]; large nonlinearity pushes
-        # s outside and the edges end up zero-order-held. warn if that
-        # excursion is a meaningful slice of the sweep.
-        t_ideal = t
-        T = n * dt
-        excess = max(float(xp.max(s)) - float(t_ideal[-1]), -float(xp.min(s)))
+        # The finite fiber sum is periodic in s/T, including outside the
+        # nominal sweep. Keep warning about large excursions of the model.
+        excess = max(float(xp.max(s)) - float(t[-1]), -float(xp.min(s)))
         if excess > 0.05 * T:
             warnings.warn(
                 f"MZI time-warp excursion {100.0 * excess / T:.1f}% of "
-                f"sweep, beat will extrapolate at the edges",
+                f"sweep, evaluating the fiber sum outside the nominal sweep",
                 stacklevel=2,
             )
 
-        # The ideal beat is already on acq.t, including fractional sweeps.
-        # Interpolation error and the small-delay approximation remain.
-        n_c = beat.shape[0]
-        warped = xp.empty_like(beat)
+        # Interpolating on the ADC grid loses amplitude near Nyquist.
+        # Centre the Fourier band around zero before spline interpolation.
+        # With 16*n_z points it has >=32 samples per fastest cycle.
+        # The period is T, not n_samples*dt.
+        n_c, n_z = weighted.shape
+        n_grid = next_fast_len(16 * n_z)
+        fraction = xp.remainder(s / T, 1.0)
+        coordinates = (fraction * n_grid)[None, :]
+        centre = n_z // 2
+        carrier = xp.exp(2j * math.pi * centre * fraction)
+        warped = xp.empty((n_c, n), dtype=xp.complex128)
         for c in range(n_c):
-            warped[c] = xp.interp(s, t_ideal, xp.real(beat[c]))
+            spectrum = xp.zeros(n_grid, dtype=xp.complex128)
+            spectrum[:n_z-centre] = weighted[c, centre:]
+            if centre:
+                spectrum[-centre:] = weighted[c, :centre]
+            grid = self.bk.fft.ifft(spectrum) * n_grid
+            warped[c] = carrier * map_coordinates(grid, coordinates, order=5, mode="grid-wrap")
 
         return warped

@@ -13,6 +13,7 @@ from pyofdr.analysis.demodulation import (
     fft_reflectogram, kclock_resample, _strict_increasing_mask,
 )
 from pyofdr.analysis.spatial_metrics import measure_resolution
+from pyofdr.utils.constants import C
 
 
 def _aux_cfg(delay=50e-9, enabled=True, a2=0.0, a3=0.0,
@@ -99,7 +100,7 @@ class TestAuxMZIStep:
     def test_nonlinear_sweep_modulates_aux_frequency(self):
         """With a2 != 0 the aux inst freq drifts. Compare peak widths in the PSD."""
         cfg_lin = _aux_cfg(delay=100e-9)
-        cfg_nl  = _aux_cfg(delay=100e-9, a2=1e19)
+        cfg_nl  = _aux_cfg(delay=100e-9, a2=1e16)  # broadening without aliasing
 
         aux_lin = _build_acq_for_aux(cfg_lin).aux_signal[_build_acq_for_aux(cfg_lin).aux_valid_start:]
         acq_nl = _build_acq_for_aux(cfg_nl)
@@ -177,8 +178,16 @@ class TestKClockResampling:
         beat_nl = acq_nl.digital_main[0].astype(np.float64)
         beat_rs = kclock_resample(beat_nl, acq_nl.aux_signal,
                                    trim_start=acq_nl.aux_valid_start)
-        H_rs, z_rs = fft_reflectogram(beat_rs, acq_nl.dz)
+        # The nonlinear sweep spans about twice the nominal bandwidth.
+        # Aux phase tracks the mean frequency over its delay interval.
+        lag = acq_nl.aux_valid_start
+        nu_first = np.mean(acq_nl.nu_inst[1:lag+1])
+        nu_last = np.mean(acq_nl.nu_inst[-lag:])
+        step_hz = (nu_last - nu_first) / (len(beat_rs) - 1)
+        dz_rs = C / (2 * cfg_nl["fiber"]["n_core"] * len(beat_rs) * step_hz)
+        H_rs, z_rs = fft_reflectogram(beat_rs, dz_rs)
         r_rs = measure_resolution(H_rs, z_rs, 0.5)
+        assert abs(r_rs["peak_z"] - .5) < 3 * acq_nl.dz
 
         # clean baseline
         H_c, z_c = fft_reflectogram(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Annotated, Literal
 
 from pint import UnitRegistry
@@ -11,6 +12,7 @@ from pyofdr.utils.constants import C as _C
 from pyofdr.utils.sampling import sweep_sample_count
 
 _ureg = UnitRegistry()
+ADC_TABLE_MAX_BITS = 20
 
 
 def _parse(unit: str):
@@ -366,7 +368,7 @@ class DetectionConfig(_Strict):
     thermal_nep:  float     = Field(1.0e-11, ge=0)   # W/sqrt(Hz), bare float
     dark_current: Current   = Field(1.0e-9, ge=0)
     balanced:     bool      = False
-    saturation_current: Current | None = None   # photodiode clamp [A]
+    saturation_current: Current | None = Field(None, gt=0, allow_inf_nan=False)  # per PD [A]
     # polynomial distortion applied pre-TIA: I_out = I_in + a2*I_in^2 + a3*I_in^3 + ...
     # coefficients start at order 2 (linear term is implicit identity). Empty = ideal.
     nonlinearity_coefficients: list[float] = Field(default_factory=list)
@@ -379,13 +381,28 @@ class ADCConfig(_Strict):
     voltage_range:   Voltage      = Field(2.0,   gt=0)
     input_impedance: Resistance   = Field(50.0,  gt=0)
     jitter_rms:      Time         = Field(0.0, ge=0)   # aperture jitter [s]
-    dnl_rms_lsb:     float        = Field(0.0, ge=0)   # DNL per-code rms [LSB]
-    inl_peak_lsb:    float        = Field(0.0, ge=0)   # INL peak (sinusoidal) [LSB]
+    dnl_rms_lsb:     float        = Field(0.0, ge=0, allow_inf_nan=False)   # DNL rms [LSB]
+    inl_peak_lsb:    float        = Field(0.0, ge=0, allow_inf_nan=False)   # sinusoidal INL [LSB]
 
     @model_validator(mode="after")
     def _enob_within_bits(self):
         if self.enob is not None and self.enob > self.bits:
             raise ValueError(f"adc.enob ({self.enob}) must be <= adc.bits ({self.bits})")
+        return self
+
+    @model_validator(mode="after")
+    def _nonlinearity_limits(self):
+        if self.bits > ADC_TABLE_MAX_BITS and self.dnl_rms_lsb > 0:
+            raise ValueError(
+                f"ADC DNL supports at most {ADC_TABLE_MAX_BITS} bits to bound table memory; "
+                "set adc.dnl_rms_lsb=0 or reduce adc.bits"
+            )
+        if self.bits > ADC_TABLE_MAX_BITS and self.inl_peak_lsb > 0:
+            n = 2**self.bits
+            min_width = 1 - self.inl_peak_lsb * math.sin(2*math.pi/n)
+            # The analytic search needs ordered, numerically distinct thresholds.
+            if min_width <= 8*math.ulp(float(n)):
+                raise ValueError("ADC thresholds are crossed or too close to resolve; reduce INL")
         return self
 
 
@@ -488,6 +505,20 @@ class RootConfig(_Strict):
             raise ValueError(
                 f"optics.aux_mzi.delay ({aux.delay*1e9:.2f} ns) "
                 f"exceeds the sweep duration"
+            )
+        if n_t - n_tau < 2:
+            raise ValueError("optics.aux_mzi.delay must leave at least two valid samples")
+
+        # The aux model rounds the requested delay to an integer sample lag.
+        src = self.source
+        gamma = (_C / src.center_wavelength**2 * src.sweep_range
+                 / src.sweep_duration)
+        f_aux = gamma * (n_tau / fs)
+        if f_aux >= fs / 2:
+            raise ValueError(
+                f"aux MZI nominal beat {f_aux*1e-6:.6g} MHz reaches or exceeds "
+                f"Nyquist {fs/2*1e-6:.6g} MHz; reduce optics.aux_mzi.delay "
+                "or increase adc.sample_rate"
             )
         return self
 

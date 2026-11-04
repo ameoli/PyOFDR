@@ -164,31 +164,29 @@ class FiberGenerator(PipelineStep):
                 rng_xt, xp=xp,
             )
 
-        # round-trip attenuation envelope. With per-segment overrides
-        # or bends we build an alpha(z) vector and integrate cumulatively.
-        if self.attenuation_segments or self.bends:
+        # Base attenuation, including any per-segment overrides.
+        if self.attenuation_segments:
             alpha_z = xp.full(n_z, float(self.attenuation_dB_km))
             for seg in self.attenuation_segments:
                 mask = (z >= seg["start"]) & (z < seg["end"])
                 alpha_z = xp.where(mask,
                                    seg["attenuation_dB_per_km"],
                                    alpha_z)
-            # bends add excess dB/km on top of the base alpha across
-            # their section. Total loss for the bend is spread
-            # uniformly over [start, end).
-            for bend in self.bends:
-                seg_len_m = bend["end"] - bend["start"]
-                if seg_len_m <= 0:
-                    continue
-                total_dB = bend_loss_total_dB(bend, wavelength=self.center_wl)
-                extra_dB_km = total_dB / (seg_len_m / 1000.0)
-                mask = (z >= bend["start"]) & (z < bend["end"])
-                alpha_z = xp.where(mask, alpha_z + extra_dB_km, alpha_z)
             attenuation = round_trip_attenuation_varying(z, alpha_z, dz, xp=xp)
             loss_to_z = cumulative_loss_dB(alpha_z, dz, xp=xp)
         else:
             attenuation = round_trip_attenuation(z, self.attenuation_dB_km, xp=xp)
             loss_to_z = z * (self.attenuation_dB_km / 1000.0)
+
+        # Integrate each bend over its actual overlap with [0, z]. Counting
+        # whole bins can lose a short bend or give it several times its loss.
+        for bend in self.bends:
+            length = bend["end"] - bend["start"]
+            total_dB = bend_loss_total_dB(bend, wavelength=self.center_wl)
+            covered = xp.maximum(0.0, xp.minimum(z, bend["end"]) - max(0.0, bend["start"]))
+            loss_to_z = loss_to_z + total_dB * (covered / length)
+        if self.bends:
+            attenuation = xp.exp(-loss_to_z * math.log(10.0) / 10.0)
 
         # connector insertion losses (step-downs in the envelope)
         if self.reflectors:

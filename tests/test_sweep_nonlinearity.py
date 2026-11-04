@@ -89,7 +89,8 @@ class TestSweepNonlinearityOnBeat:
     def test_a2_broadens_reflector_peak(self):
         """Quadratic nonlinearity smears the reflector peak."""
         cfg_clean = _nl_cfg()
-        cfg_nl = _nl_cfg(a2=5e18)
+        # 0.2% endpoint excursion; the beat remains below Nyquist.
+        cfg_nl = _nl_cfg(a2=1e14)
 
         acq_clean = run_campaign(cfg_clean)[-1]
         acq_nl = run_campaign(cfg_nl)[-1]
@@ -106,7 +107,7 @@ class TestSweepNonlinearityOnBeat:
 
     def test_a3_broadens_reflector_peak(self):
         cfg_clean = _nl_cfg()
-        cfg_nl = _nl_cfg(a3=5e23)
+        cfg_nl = _nl_cfg(a3=1e16)
 
         acq_clean = run_campaign(cfg_clean)[-1]
         acq_nl = run_campaign(cfg_nl)[-1]
@@ -149,7 +150,7 @@ class TestSweepNonlinearityOnBeat:
 
 
 class TestTimeWarpBounds:
-    """np.interp clamps past the grid, so extreme excursion extrapolates."""
+    """Large excursions still warn when evaluating beyond the nominal sweep."""
 
     def test_mild_nonlinearity_silent(self):
         # excursion ~0.2% of sweep -> below the 5% warning threshold

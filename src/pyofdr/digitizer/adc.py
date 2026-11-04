@@ -1,6 +1,6 @@
 """ADC model.
 
-Ideal uniform mid-tread quantizer + clipping at +/- V_range/2.
+Ideal uniform floor quantizer + clipping at +/- V_range/2.
 
 Optional ENOB (effective number of bits) injects extra Gaussian noise
 *before* quantization, so that the total RMS noise matches what a
@@ -16,11 +16,13 @@ If enob is unset (or equals bits) we don't add anything and the ADC
 stays purely quantization-noise limited.
 
 DNL (differential non-linearity) and INL (integral non-linearity) are
-the per-code deviations from the ideal transfer characteristic. We
-build a single LSB-offset curve at __init__ time (once per chip) and
-apply it after quantization. INL is a sinusoid across the code range,
-DNL is a random walk with zero endpoint drift. See e.g. Kester, "The
-Data Conversion Handbook", chapter 2.
+the code-width and transition-level errors. A fixed threshold table
+is built once per chip up to 20 bits. Above that, INL thresholds are
+evaluated on demand and random DNL is unsupported. INL displaces the
+thresholds sinusoidally;
+DNL uses positive random code widths, normalized to the full input
+range. The sampled voltage is compared with these thresholds before
+assigning a code. See Kester, "The Data Conversion Handbook", chapter 2.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import math
 from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.config_models import ADC_TABLE_MAX_BITS
 from pyofdr.core.pipeline import PipelineStep
 from pyofdr.utils.seeding import derive_seed
 
@@ -50,32 +53,59 @@ class ADC(PipelineStep):
         self.inl_peak_lsb = adc["inl_peak_lsb"]
         self.seed = self.config["simulation"]["seed"]
 
-        # DNL / INL: these are physical chip-level imperfections, fixed
-        # once the part is manufactured. So we compute one realisation up
-        # front and reuse it across all sweeps. INL is modelled as a
-        # single sinusoid spanning the code range, DNL as a random
-        # cumulative walk (each step ~ N(0, dnl_rms)). Final curve[k] is
-        # the offset in LSB to subtract from code k.
-        self._nl_curve = None
-        if self.dnl_rms_lsb > 0 or self.inl_peak_lsb > 0:
-            self._nl_curve = self._build_nl_curve()
+        # Fixed chip imperfections, shared by all sweeps and channels.
+        self._thresholds = None
+        if self.bits <= ADC_TABLE_MAX_BITS and (self.dnl_rms_lsb > 0 or self.inl_peak_lsb > 0):
+            self._thresholds = self._build_thresholds()
 
-    def _build_nl_curve(self):
+    def _build_thresholds(self):
         xp = self.bk.xp
-        k = xp.arange(self.n_levels) - self.n_levels // 2
-        curve = xp.zeros(self.n_levels)
-        if self.inl_peak_lsb > 0:
-            curve += self.inl_peak_lsb * xp.sin(
-                2.0 * math.pi * (k + self.n_levels // 2) / self.n_levels)
+        edges = xp.arange(self.n_levels + 1, dtype=float)
         if self.dnl_rms_lsb > 0:
             rng = self.bk.random_generator(
                 derive_seed(self.seed, component="adc", sub=2))
-            # cumulative DNL, zero-mean-detrended so it doesn't add a
-            # monotonic ramp (that would just be a gain error).
-            walk = xp.cumsum(rng.standard_normal(self.n_levels)) * self.dnl_rms_lsb
-            walk -= xp.linspace(0, walk[-1], self.n_levels)
-            curve += walk
-        return curve
+            # A lognormal width has positive support and CV = dnl_rms_lsb.
+            # Normalize the finite realization so there is no net gain error.
+            sigma = math.sqrt(math.log1p(self.dnl_rms_lsb * self.dnl_rms_lsb))
+            if not math.isfinite(sigma):
+                raise ValueError("DNL magnitude is outside the numerical range")
+            log_width = sigma * rng.standard_normal(self.n_levels)
+            widths = xp.exp(log_width - xp.max(log_width))
+            widths *= self.n_levels / xp.sum(widths)
+            edges[1:] = xp.cumsum(widths)
+            edges[-1] = self.n_levels
+        if self.inl_peak_lsb > 0:
+            k = xp.arange(self.n_levels + 1, dtype=float)
+            inl = self.inl_peak_lsb * xp.sin(2.0 * math.pi * k / self.n_levels)
+            inl[[0, self.n_levels // 2, -1]] = 0.0
+            edges += inl
+        edges = (edges - self.n_levels // 2) * (self.voltage_range / self.n_levels)
+        if not xp.all(xp.isfinite(edges)) or xp.any(xp.diff(edges) <= 0):
+            raise ValueError("ADC thresholds must be strictly increasing; reduce DNL/INL")
+        return edges[1:-1]
+
+    def _quantize_inl(self, voltage):
+        xp = self.bk.xp
+        half = self.n_levels // 2
+        lsb = self.voltage_range / self.n_levels
+        flat = voltage.reshape(-1)
+        codes = xp.empty(flat.size, dtype=xp.int64)
+        # Binary search on the same thresholds as the table. Small blocks keep
+        # the temporary arrays bounded even for a long, multicore acquisition.
+        for start in range(0, flat.size, 65536):
+            v = flat[start:start+65536]
+            lo = xp.zeros(v.size, dtype=xp.int64)
+            hi = xp.full(v.size, self.n_levels-1, dtype=xp.int64)
+            for _ in range(self.bits):
+                mid = (lo+hi+1)//2
+                offset = self.inl_peak_lsb * xp.sin(2*math.pi*mid/self.n_levels)
+                offset = xp.where(mid == half, 0., offset)
+                threshold = (mid+offset-half)*lsb
+                above = v >= threshold
+                lo = xp.where(above, mid, lo)
+                hi = xp.where(above, hi, mid-1)
+            codes[start:start+v.size] = lo-half
+        return codes.reshape(voltage.shape)
 
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.analog_main is None:
@@ -123,18 +153,15 @@ class ADC(PipelineStep):
         half = self.n_levels // 2   # 32768 for 16-bit
 
         clipped = xp.clip(analog, -self.v_max, self.v_max)
-        normalized = clipped / self.v_max           # [-1, 1]
-        # At 32 bits, +full scale is 2**31 before clipping. Too big for int32.
-        digital = xp.floor(normalized * half).astype(xp.int64)
-        digital = xp.clip(digital, -half, half - 1)
-
-        # DNL/INL: shift each output code by the precomputed nonlinearity
-        # curve (in LSB).  index with (code + half) to land in [0, n_levels).
-        if self._nl_curve is not None:
-            curve = xp.asarray(self._nl_curve)
-            offset = curve[digital + half]
-            # Large offsets can leave the code range. Clip before the final cast.
-            digital = xp.floor(digital + offset)
+        if self._thresholds is not None:
+            # At a transition, the upper code wins, just as with floor quantization.
+            digital = xp.searchsorted(self._thresholds, clipped, side="right") - half
+        elif self.inl_peak_lsb > 0:
+            digital = self._quantize_inl(clipped)
+        else:
+            normalized = clipped / self.v_max           # [-1, 1]
+            # At 32 bits, +full scale is 2**31 before clipping. Too big for int32.
+            digital = xp.floor(normalized * half).astype(xp.int64)
             digital = xp.clip(digital, -half, half - 1)
 
         # int16 would silently wrap the codes for bits > 16 (#89)

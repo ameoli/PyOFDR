@@ -2,6 +2,7 @@
 
 Signal chain:
     optical power [W]  -->  photocurrent (responsivity)
+                       -->  per-diode nonlinearity / saturation, then AC beat
                        -->  + shot noise
                        -->  + thermal noise
                        -->  + dark current noise
@@ -83,15 +84,7 @@ class Detector(PipelineStep):
 
         # convert optical power to current
         I = acq.photocurrent_main * self.responsivity
-
-        # photodiode saturation: real PDs have a max linear photocurrent
-        # above which the response flattens. We model this as a hard clip
-        # applied BEFORE the noise sources (noise is added by the TIA /
-        # on the clipped current). symmetric because balanced mode can
-        # swing negative.
-        if self.saturation_current is not None:
-            I_sat = self.saturation_current
-            I = xp.clip(I, -I_sat, I_sat)
+        linear_current = I
 
         # small-signal photodiode nonlinearity. In balanced mode we
         # reconstruct per-PD currents as I_dc +- I_beat, apply the polynomial
@@ -119,8 +112,33 @@ class Detector(PipelineStep):
                     if a != 0:
                         I = I + a * (I_pd ** k - self.dc_current ** k)
 
+        # Saturation belongs to each diode, before subtraction/AC coupling.
+        # Apply the polynomial first so it cannot push the output past I_sat.
+        shot_current_a = None
+        shot_current_b = None
+        if self.saturation_current is not None:
+            def response(current):
+                raw = current
+                for k, a in enumerate(self.nl_coeffs, start=2):
+                    if a != 0:
+                        raw = raw + a * current**k
+                return raw, xp.clip(raw, 0.0, self.saturation_current)
+
+            if self.balanced:
+                raw_a, limited_a = response(self.dc_current + linear_current/2)
+                raw_b, limited_b = response(self.dc_current - linear_current/2)
+                shot_current_b = limited_b
+            else:
+                raw_a, limited_a = response(self.dc_current + linear_current)
+                raw_b, limited_b = response(self.dc_current)
+            clipped = (limited_a != raw_a) | (limited_b != raw_b)
+            # Keep the existing small-signal calculation where no clipping occurs;
+            # subtracting two large DC currents there would lose precision.
+            I = xp.where(clipped, limited_a - limited_b, I)
+            shot_current_a = limited_a
+
         if self.balanced:
-            # Balanced detection: two photodiodes see complementary MZI arms.
+            # In the linear limit, the two PDs see complementary MZI arms.
             # Arm A -> I_dc + I_beat/2,  arm B -> I_dc - I_beat/2.
             # Subtraction recovers the full-difference beat the MZI already
             # stores, plus the noise of BOTH PDs (uncorrelated, so it adds).
@@ -131,11 +149,16 @@ class Detector(PipelineStep):
             rngs_dark_b   = _rngs(5)
 
             if self.shot_noise_enabled:
-                # shot noise from the per-PD DC current (signal arm negligible)
-                sigma_shot = math.sqrt(2.0 * E_CHARGE * self.dc_current * bw)
                 sa = xp.stack([r.standard_normal(n) for r in rngs_shot_a])
                 sb = xp.stack([r.standard_normal(n) for r in rngs_shot_b])
-                I  = I + sigma_shot * (sa - sb)
+                if shot_current_a is None:
+                    # Unsaturated reference-dominated approximation.
+                    sigma_shot = math.sqrt(2.0 * E_CHARGE * self.dc_current * bw)
+                    I = I + sigma_shot * (sa - sb)
+                else:
+                    sigma_a = xp.sqrt(2.0 * E_CHARGE * shot_current_a * bw)
+                    sigma_b = xp.sqrt(2.0 * E_CHARGE * shot_current_b * bw)
+                    I = I + sigma_a*sa - sigma_b*sb
 
             if self.thermal_nep > 0:
                 # single TIA sits after the subtraction node
@@ -156,11 +179,12 @@ class Detector(PipelineStep):
             rngs_therm = _rngs(1)
             rngs_dark  = _rngs(2)
 
-            # shot noise: sigma^2 = 2*e*(I_dc + I)*B. The reference-arm DC
-            # dominates; the beat only modulates it. The signal path itself
-            # stays AC-coupled -- I_dc is noise bookkeeping only (#91).
+            # Shot noise uses the total current, even though the static
+            # baseline has been removed from the signal path.
             if self.shot_noise_enabled:
-                shot_var = 2.0 * E_CHARGE * xp.maximum(self.dc_current + I, 0.0) * bw
+                collected = (xp.maximum(self.dc_current + I, 0.0)
+                             if shot_current_a is None else shot_current_a)
+                shot_var = 2.0 * E_CHARGE * collected * bw
                 shot = xp.stack([r.standard_normal(n) for r in rngs_shot])
                 I = I + xp.sqrt(shot_var) * shot
 

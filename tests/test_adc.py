@@ -196,16 +196,10 @@ class TestADCEnob:
 
 class TestADCNonlinearity:
 
-    def test_large_inl_saturates_without_wrap(self):
-        # Deliberately oversized. Both ends must saturate with the right sign.
-        adc = ADC({"adc": {"bits": 4, "inl_peak_lsb": 3e9}})
-        acq = Acquisition()
-        acq.analog_main = np.array([[-0.5, 0.5]])
-
-        with np.errstate(invalid="raise", over="raise"):
-            out = adc.process(acq)
-
-        np.testing.assert_array_equal(out.digital_main, [[7, -8]])
+    def test_large_inl_rejects_crossed_thresholds(self):
+        # This cannot describe a monotone ADC; don't silently reverse the codes.
+        with pytest.raises(ValueError, match="threshold"):
+            ADC({"adc": {"bits": 4, "inl_peak_lsb": 3e9}})
 
     def _cfg(self, **adc_overrides):
         cfg = {**CFG, "adc": {**CFG["adc"], **adc_overrides}}
