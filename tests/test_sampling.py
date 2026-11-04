@@ -135,16 +135,10 @@ def test_nonlinear_warp_uses_physical_time_grid(a2):
     span = C * 1e-9 / (1550e-9)**2
     s = acq.t + a2 * acq.t**2 / (span / T)
     amplitude = 2 * 0.01 * np.sqrt(0.4 * 0.6 * 1e-4)
-    # Separate the sampling correction from the existing linear interpolation error.
     phase = np.angle(acq.fiber_profile[0, 16])
-    expected_interpolated = np.interp(
-        s, acq.t, amplitude * np.cos(2 * np.pi * 16 * acq.t / T + phase))
-    np.testing.assert_allclose(acq.photocurrent_main[0], expected_interpolated,
-                               rtol=0, atol=amplitude * 1e-9)
-    inside = (s >= acq.t[0]) & (s <= acq.t[-1])
-    exact = amplitude * np.cos(2 * np.pi * 16 * s[inside] / T + phase)
-    rms = np.sqrt(np.mean((acq.photocurrent_main[0, inside] - exact)**2)) / amplitude
-    assert rms < 1e-4
+    exact = amplitude * np.cos(2 * np.pi * 16 * s / T + phase)
+    np.testing.assert_allclose(acq.photocurrent_main[0], exact,
+                               rtol=0, atol=amplitude * 2e-7)
 
 
 def test_auxiliary_frequency_matches_requested_chirp():

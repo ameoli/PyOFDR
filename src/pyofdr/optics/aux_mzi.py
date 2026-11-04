@@ -60,6 +60,21 @@ class AuxMZI(PipelineStep):
             raise ValueError(
                 f"aux MZI delay ({self.delay*1e9:.2f} ns) exceeds sweep duration"
             )
+        if n - n_tau < 2:
+            raise ValueError("aux MZI delay must leave at least two valid samples")
+
+        # d(phi(t)-phi(t-tau))/dt / (2*pi), before wrapping in the cosine.
+        # Use nu directly: differencing the integrated optical carrier loses precision.
+        beat_freq = acq.nu_inst[n_tau:] - acq.nu_inst[:-n_tau]
+        max_beat = float(xp.max(xp.abs(beat_freq)))
+        if not math.isfinite(max_beat):
+            raise ValueError("aux MZI beat frequency must be finite")
+        if max_beat >= 0.5 / dt:
+            raise ValueError(
+                f"aux MZI beat {max_beat*1e-6:.6g} MHz reaches or exceeds "
+                f"Nyquist {0.5/dt*1e-6:.6g} MHz; reduce the delay or sweep "
+                "excursions, or increase adc.sample_rate"
+            )
 
         # integrated frequency (= phi/2pi): rectangle rule, same as SweptLaser
         integ = xp.cumsum(acq.nu_inst) * dt

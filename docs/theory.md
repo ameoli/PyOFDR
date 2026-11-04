@@ -61,7 +61,9 @@ Tunable lasers droop toward the sweep edges. Parabolic model:
 `edge_dB = 0` is flat. The envelope and the RIN both reach the detector because the beat carries `P(t)` pointwise, not an average (see optics section).
 
 ### Sweep nonlinearity
-The `a2`, `a3`, `A_r`, `T_r` terms above are the deviation from the linear ramp. Compensated either by the MZI time-warp or the aux-MZI k-clock in post-processing
+The `a2`, `a3`, `A_r`, `T_r` terms above are the deviation from the linear ramp.
+The MZI time-warp models their effect on the beat; aux-MZI k-clock resampling
+can compensate it in post-processing.
 
 Ref: Glombitza & Brinkmeyer, J. Lightwave Technol. 11, 1377 (1993)
 
@@ -121,10 +123,24 @@ the arc length still uses the physical radius. The implementation evaluates
 the expression in log form and lets negligible losses underflow to zero.
 It does not exponentiate a large positive optical depth to convert to dB.
 
-The total one-way loss is spread uniformly over `[start, end)` as extra
-dB/km. It enters the existing distributed-loss integral, so direct returns
-see the usual round-trip field factor `10^(-loss_dB/10)`, and ghosts count
-the actual number of passages through the bent region.
+For all three models, the total one-way bend loss is spread uniformly over
+`[start, end)`. Its cumulative contribution at a scatterer position `z` is
+integrated over the physical interval, including fractional cells:
+
+    covered = max(0, min(z, end) - max(0, start))
+    bend_loss_to_z = total_loss_dB * covered / (end - start)
+
+For a bend inside the fiber this gives zero at its start and the full loss
+at or beyond its end, even if the entire bend lies between two grid points.
+Overlapping bends add in dB. At the last sampled position, a bend that extends
+further towards the fiber end contributes only the portion already traversed.
+The same cumulative loss is used for direct returns and ghost paths. Direct
+returns see the round-trip field factor `10^(-loss_to_z/10)`; ghosts count
+the full or partial bent interval on every passage.
+
+`tests/test_bend_grid.py` checks shifted and sub-cell bends, different spatial
+grids, overlap with other attenuation, and partial ghost crossings, with
+`1e-12` relative tolerances on nonzero losses or field factors.
 
 The analytic calculation uses the source centre wavelength and fixed phase
 indices. During an OFDR sweep the resulting envelope is held constant; this
@@ -368,9 +384,9 @@ After k-clock resampling or cropping, calibrate from the new frequency step
 and record length instead of reusing the raw-acquisition scale. For a linear
 sweep, cropping to `M` samples gives `fft_dz * N/M`.
 
-The nonlinear time warp interpolates the correctly sampled ideal beat on
-`acq.t`. Its interpolation error, edge clamping and finite-delay approximation
-are still model limits. The timing correction does not eliminate them.
+The nonlinear time warp evaluates the fiber's Fourier sum at warped times,
+using the physical sweep period `T` even when `T*fs` is fractional. It uses
+a separate oversampled grid; see below for accuracy and boundary behavior.
 
 ### Circulator
 3-port scalar model (`optics/components.py`). Signal passes the circulator twice, so `round_trip_transmission = IL^2` in field = `10^(-IL_dB/10)` in power. Isolation (port1->port3 leakage) lands at zero delay as a DC offset riding P(t); return loss is a reflector sitting in the z=0 bin.
@@ -385,7 +401,40 @@ The coloured (flicker / random-walk) FM noise instead enters stochastically thro
 Ref: Coupland & Pickering, J. Opt. Soc. Am. A 9, 257 (1992).
 
 ### Sweep-nonlinearity time-warp
-_Work in progress._
+For small round-trip delay `tau`, the frequency deviation `delta_nu(t)` adds
+the beat phase `2*pi*tau*delta_nu(t)`. With nominal chirp rate `gamma`, this
+is equivalent to evaluating the ideal beat at
+
+    s(t) = t + delta_nu(t)/gamma
+    beat(t) = sum_k h[k] exp(2*pi*i*k*s(t)/T)
+
+Here `h` is the fiber profile after attenuation, ghosts and coherence roll-off.
+The deviation includes the polynomial/ripple terms, slow colored FM and the
+equivalent GVD term below. White FM retains its separate coherence treatment.
+This is the forward model; auxiliary-MZI k-clock resampling is a subsequent
+analysis operation that attempts to compensate the nonlinearity.
+
+Linear interpolation on the ADC grid is unsuitable here: a half-sample shift
+attenuates a tone at `0.4*fs` by 10.20 dB. Instead, the implementation centres
+the known Fourier band around zero, evaluates it by IFFT on at least `16*n_z`
+points, and uses a periodic quintic spline before restoring the carrier.
+The centred band has at least 32 samples per fastest cycle. Cores are processed
+one at a time to limit temporary memory; the internal grid scales with the
+fiber size, independently of the ADC sample count.
+
+The Fourier sum has period `T` in `s`, so evaluation beyond the nominal sweep
+continues that sum rather than clamping to the first or last ADC sample.
+Excursions greater than 5% of `T` still emit a warning. This continuation follows
+the discrete-fiber model; it is not a model of laser reset or flyback.
+
+`tests/test_time_warp_accuracy.py` compares tones and complex multicore profiles
+with direct Fourier sums, including fractional sample counts, sweep boundaries,
+polynomial distortion, ripple, GVD and slow FM. Tone errors are checked against
+`2e-7` of unit field amplitude and profile relative RMS errors against `2e-7`.
+The small-delay approximation remains, and sufficiently fast warps can still
+alias at the ADC: the nominal linear-sweep Nyquist check does not bound all
+instantaneous beat frequencies. FBG contributions retain their separate
+ideal-chirp propagation-phase approximation.
 
 ### Chromatic dispersion (GVD)
 Group-velocity dispersion enters through `beta2 = -lambda^2 D/(2 pi c)`.
@@ -398,6 +447,21 @@ An auxiliary MZI with a known delay tau, fed by the same swept laser (`optics/au
     I_aux(t) = cos(phi(t) - phi(t - tau)) = cos(2 pi integral_{t-tau}^t nu du)
 For a linear chirp it's a clean sine at `gamma tau`. When the sweep wobbles I_aux wobbles with it, so its unwrapped Hilbert phase is a monotone function of nu(t). `analysis.demodulation.kclock_resample` uses it as a clock to resample the main beat onto a uniform-nu grid, undoing the sweep nonlinearity before the FFT. The first `round(tau/dt)` samples are invalid, and non-monotone phase samples are dropped before `np.interp` (#64).
 
+The implementation uses the integer lag `n_tau = round(tau/dt)`, so its
+effective delay is `n_tau*dt`. Configuration validation requires the nominal
+beat `gamma*n_tau*dt < fs/2`. At runtime, before forming the cosine, it checks
+`max(abs(nu_inst[j] - nu_inst[j-n_tau])) < fs/2` for `j >= n_tau`.
+This difference is the phase increment divided by `2*pi*dt` for the rectangle
+integration used here. Checking the unwrapped frequency difference avoids
+mistaking an already aliased tone for a valid low-frequency clock. Both signs
+and local excursions are checked, including the realized laser frequency noise.
+The delay must leave at least two valid samples to define the mean beat.
+
+This is a sampling guard on the modeled frequency trace, not a guarantee of
+strict spectral band limitation: modulation sidebands and any variation
+between source samples are not bounded by this check. It also does not ensure
+monotone k-clock phase; the resampling checks still apply.
+
 Ref: Glombitza & Brinkmeyer, J. Lightwave Technol. 11, 1377 (1993).
 
 ## Detection
@@ -407,14 +471,41 @@ Ref: Glombitza & Brinkmeyer, J. Lightwave Technol. 11, 1377 (1993).
 Current is responsivity times optical power, `I(t) = R P_opt(t)`, with R in A/W (typ. 1.0 for InGaAs at 1550 nm).
 
 ### Saturation
-Symmetric clip at `+/- I_sat` before noise is added — the TIA noise goes on the already-clipped current.
+`saturation_current` is a positive, finite limit on the total current of each
+photodiode, including the reference-arm DC. It is applied before balanced
+subtraction or removal of the static operating-point current. With
+`F(x) = x + sum(a_k*x^k)` for the optional polynomial and
+`G(x) = clip(F(x), 0, I_sat)`, the noiseless outputs are
+
+    single-ended: G(I_dc_pd + I_beat) - G(I_dc_pd)
+    balanced:     G(I_dc_pd + I_beat/2) - G(I_dc_pd - I_beat/2)
+
+Thus a small beat can be lost when the DC alone saturates both diodes. The
+polynomial is applied before clipping, so it cannot exceed the per-diode
+limit. Samples without clipping retain the existing small-signal calculation
+to avoid cancellation when subtracting large DC terms. Static-baseline removal
+is not a model of an AC-coupling filter's frequency response.
+
+Shot, thermal and dark noise are added afterwards. With saturation enabled,
+the shot-noise variance is `2*e*I_collected*B` per diode, using its nonnegative
+limited current before baseline removal/subtraction. Independent diode noise
+contributions add in variance, even if their mean difference is zero. Thermal
+and dark noise retain their existing models and are not clipped by this limit.
+
+This is a static hard-clipping model with a Gaussian mean-current estimate for
+shot noise, not a prediction of noise or recovery dynamics of a saturated
+device. The DC estimate remains `R*eta*source.power/2`; reference-arm RIN and
+envelope variations are not propagated into that operating point. A TIA
+output-voltage limit is a separate effect. `tests/test_detector_saturation.py`
+checks one/both saturated diodes, polynomial composition, noise variance,
+configuration bounds and end-to-end output.
 
 ### Electronic noise
 Independent gaussians:
 
 - reference current per photodiode: `I_dc_pd = R eta P_laser / 2`, including the 50/50 recombiner,
-- single-ended shot: variance `2 e max(I_dc_pd + I_beat, 0) B`; the reference dominates for weak returns,
-- balanced shot: two independent contributions, each with variance `2 e I_dc_pd B`,
+- without saturation, single-ended shot: variance `2 e max(I_dc_pd + I_beat, 0) B`; the reference dominates for weak returns,
+- without saturation, balanced shot: two independent contributions, each with variance `2 e I_dc_pd B`,
 - thermal / NEP: `sigma = R NEP sqrt(B)`, NEP in W/sqrt(Hz),
 - dark current: variance `2 e I_dark B` per photodiode, doubled in balanced mode.
 
@@ -456,12 +547,14 @@ In balanced mode it acts per arm (`I_A = I_dc_pd + I_beat/2`,
 `I_B = I_dc_pd - I_beat/2`), then the outputs are differenced. In single-ended
 mode the polynomial is evaluated at `I_dc_pd + I_beat` and its static value
 at `I_dc_pd` is subtracted. Both modes retain the DC/beat mixing terms.
+When a saturation limit is also configured, each polynomial output (including
+the static single-ended baseline) is clipped as described above.
 
 ## ADC
 `digitizer/adc.py`.
 
 ### Quantization
-Uniform mid-tread, `2^bits` levels, hard clip at `+/- V_range/2`, theoretical RMS
+Uniform floor quantizer, `2^bits` levels, hard clip at `+/- V_range/2`, theoretical noise standard deviation
     sigma_q = V_range / (2^bits sqrt(12))
 
 ### ENOB
@@ -473,9 +566,53 @@ The effective number of bits lumps jitter + INL + analog noise into one number, 
 A timing error `dt_err ~ N(0, sigma_j)` becomes a voltage error to first order, `dV = (dV/dt) dt_err`, with the slope from finite differences.
 
 ### DNL / INL
-Fixed once "fabricated": one realization `curve[k]` (LSB offset per code) built at init. INL is a single-cycle sine over the code range with amplitude `inl_peak_lsb`; DNL is a cumulative random walk of step `N(0, dnl_rms_lsb)`, detrended linearly (otherwise it's just a gain error).
+Nonlinearities act on the voltage thresholds before a code is assigned. With
+`N = 2^bits` and `LSB = V_range/N`, the ideal boundaries are
+`T[j] = (j-N/2)*LSB`, including the two full-scale endpoints. A sample exactly
+on an internal threshold takes the upper code, as in the ideal floor quantizer.
 
-Ref: Kester, The Data Conversion Handbook
+For DNL, draw `N` positive lognormal widths with log standard deviation
+`sqrt(log(1+dnl_rms_lsb^2))`, then normalize their sum to `N`. The cumulative
+widths replace the ideal boundary positions `j`. Before finite-sample
+normalization, the width distribution has coefficient of variation
+`dnl_rms_lsb`; the measured DNL RMS of a particular chip has sampling scatter.
+Positive widths avoid the negative code widths possible with Gaussian DNL.
+This lognormal choice is a model assumption, not a measured device distribution.
+
+INL then adds `inl_peak_lsb*sin(2*pi*j/N)` to these boundary positions, in LSB.
+The endpoints stay fixed, so neither contribution adds a net full-scale gain
+error. With both enabled, the random widths also contribute to INL, and the
+sinusoidal displacement contributes to DNL: the two parameters describe
+components, not bounds on the total error. Combinations that cross thresholds
+or produce numerically indistinguishable boundaries raise `ValueError`.
+Missing codes are not modeled.
+
+The threshold realization is fixed by the simulation seed and shared across
+sweeps and channels. ENOB noise and aperture jitter are applied before threshold
+comparison. With both nonlinearities zero, the original ideal quantizer is used.
+A tiny threshold displacement only changes samples near that threshold; it
+does not shift a whole code bin by one LSB. Tests in `test_adc_thresholds.py`
+recover transitions by bisection and verify code widths with a uniform ramp.
+
+Threshold tables are limited to 20 bits: a float64 table then takes about
+8 MiB, rather than 32 GiB at 32 bits. Random DNL above 20 bits is rejected
+at configuration validation; its independent code widths are not replaced
+with a coarser or periodic approximation.
+
+For 21-32 bits with sinusoidal INL alone, integer binary search evaluates
+the same thresholds directly. Each sample takes `bits` comparisons, processed
+in blocks of at most 65536 samples, so temporary search storage does not grow
+with the number of ADC codes. Input and output storage still scales with the
+acquisition size. This trades computation time for bounded memory.
+The minimum sinusoidal code width is `1-A*sin(2*pi/N)` LSB. The analytic path
+requires this to exceed `8*ulp(N)` to leave a floating-point rounding margin;
+otherwise configuration validation rejects the thresholds as crossed or too
+close to resolve. The tabulated path checks its realized boundaries directly.
+`test_adc_memory.py` checks agreement with an explicit 21-bit table, 32-bit
+transition ties, reproducibility across blocks, and bounded memory use.
+
+Ref: [Analog Devices MT-010](https://www.analog.com/media/en/training-seminars/tutorials/mt-010.pdf),
+for the definitions of transition-level INL and code-width DNL.
 
 ## Analysis
 Post-processing under `analysis/`; reads the simulated output back.

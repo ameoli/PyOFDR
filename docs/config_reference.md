@@ -141,6 +141,9 @@ source:
 This gives about **3.3562 dB one-way** for the turn. The interval places that
 loss along the simulated fiber; the arc length used in the formula is
 `2*pi*radius*turns`. These example parameters are not universal SMF-28 defaults.
+All three models integrate the traversed fraction of `[start, end)` at each
+spatial sample. Bounds do not need to align with the grid: samples at or beyond
+`end` see the full bend loss, and overlapping bends add in dB.
 See [the theory guide](theory.md#macrobending) for equations, references and limits.
 
 ### fiber.reflectors[]
@@ -286,6 +289,14 @@ Auxiliary k-clock MZI. Off by default. When enabled, requires a positive
 | --- | --- | --- | --- |
 | `enabled` | bool | False | turn k-clock on |
 | `delay` | time >= 0 | 0.0 | round-trip delay; typical 10-500 ns |
+
+The delay is rounded to `n_tau = round(delay*sample_rate)` samples. It must
+span at least two samples and leave at least two valid output samples. The
+nominal auxiliary beat `gamma*n_tau/sample_rate` must be strictly below
+`sample_rate/2`; the usable delay therefore depends on the sweep settings.
+During simulation, the actual delayed frequency difference is checked too,
+including polynomial sweep errors, ripple and laser frequency noise. A local
+excursion reaching Nyquist raises an error before the auxiliary cosine is made.
 
 ```yaml
 optics:
@@ -436,11 +447,17 @@ noise terms (shot/thermal/dark), and optional saturation + nonlinearity.
 | `thermal_nep` | W/sqrt(Hz) >= 0 | 1.0e-11 | thermal NEP |
 | `dark_current` | A >= 0 | 1.0e-9 | photodiode dark current |
 | `balanced` | bool | False | balanced detector mode |
-| `saturation_current` | A \| None | None | clamp; None disables |
+| `saturation_current` | finite A > 0 \| None | None | total current limit per photodiode; None disables |
 | `nonlinearity_coefficients` | list[float] | `[]` | a2, a3, ... polynomial coefficients |
 
 `nonlinearity_coefficients` starts at order 2 (`a2`, `a3`, ...); the
-linear term is implicit identity. Empty list = ideal photodiode.
+linear term is implicit identity. Empty list = no polynomial distortion.
+`saturation_current` clips each diode's polynomial response to `[0, I_sat]`,
+including reference-arm DC, before balanced subtraction or single-ended
+static-baseline removal. Shot noise uses the limited per-diode currents;
+noise is added after clipping. The limit is not a TIA output-voltage limit.
+The reference DC uses the configured mean laser power, as detailed in the
+[theory guide](theory.md#saturation).
 
 ```yaml
 detection:
@@ -463,8 +480,23 @@ Digitizer stage: quantization and sampling plus the non-ideal effects
 | `voltage_range` | V > 0 | 2.0 | full-scale input range |
 | `input_impedance` | ohm > 0 | 50.0 | termination |
 | `jitter_rms` | time >= 0 | 0.0 | aperture jitter |
-| `dnl_rms_lsb` | float >= 0 | 0.0 | per-code DNL rms |
-| `inl_peak_lsb` | float >= 0 | 0.0 | INL peak (sinusoidal model) |
+| `dnl_rms_lsb` | finite float >= 0 | 0.0 | target RMS of the random code-width error, in LSB; nonzero values require `bits <= 20` |
+| `inl_peak_lsb` | finite float >= 0 | 0.0 | peak sinusoidal threshold displacement, in LSB |
+
+DNL uses positive lognormal code widths, normalized to the full-scale range;
+the realized RMS varies between finite chips. INL adds a sinusoidal displacement
+to the thresholds. These are separate contributions: random DNL also creates
+INL, and sinusoidal INL changes code widths. Thresholds are fixed by the seed
+and shared across sweeps and channels. Configurations that make thresholds
+cross or become numerically indistinguishable are rejected when the ADC is
+created. See `theory.md` for the model and its limitations.
+
+DNL uses a full threshold table, so it is supported up to 20 bits (about
+8 MiB for the table, plus construction temporaries). Larger bit depths with
+nonzero DNL are rejected during configuration validation, including by
+`pyofdr validate`. For 21-32 bits, sinusoidal INL is evaluated on demand with
+binary search and bounded temporary arrays. No random DNL approximation is
+substituted. Ideal quantization, ENOB and jitter remain available up to 32 bits.
 
 ```yaml
 adc:
@@ -512,3 +544,9 @@ If this fails the config is rejected with a message naming both
 quantities in MHz. Knobs that move `f_beat_max`: `fiber.length`,
 `fiber.n_core`, `source.sweep_range`, `source.sweep_duration`,
 `source.center_wavelength`.
+
+For an enabled auxiliary MZI, validation also checks the nominal beat using
+its rounded sample delay, independently of the fiber length. This catches
+an undersampled k-clock even when the main beat is below Nyquist. The runtime
+auxiliary check covers the realized sweep and noise; configuration validation
+alone does not bound those excursions.

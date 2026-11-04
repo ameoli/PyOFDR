@@ -130,7 +130,8 @@ def test_generated_ghost_uses_segment_and_bend_loss(kind, start, end, passes):
         loss_per_m = 1.0 / (end - start)  # 1 dB in total
     acq = FiberGenerator(fiber_config(refs, **options)).process(Acquisition())
     a, b = [round(r["z"] / acq.dz) for r in refs]
-    covered_length = np.count_nonzero((acq.z >= start) & (acq.z < end)) * acq.dz
+    covered_length = (end - start if kind == "bend" else
+                      np.count_nonzero((acq.z >= start) & (acq.z < end)) * acq.dz)
     expected = 0.96 * 0.2 * 0.09 * 10**(-passes * loss_per_m * covered_length / 20)
     np.testing.assert_allclose(abs(acq.ghost_profile[0, 2*b-a]), expected, rtol=1e-12)
 
