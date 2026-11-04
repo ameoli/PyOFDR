@@ -12,8 +12,7 @@ across the Bragg resonance.
 
 Caveats:
 - Born approximation only -- peak_reflectivity above ~0.5 is wrong.
-- Phase term is the ideal-chirp beat, not warped by sweep nonlinearity
-  (small delta_nu/gamma error when both fbg and a2/a3/ripple are on).
+- Propagation uses the same small-delay time-warp approximation as Rayleigh.
 - Broadcast across all cores; per-core inscription is a future refinement.
 - Strain and temperature use the grating's z-bin, assumed uniform over L_g.
   Only the resonance shifts; bandwidth and propagation phase stay unchanged.
@@ -54,8 +53,11 @@ def weak_fbg_signal(
     coherence visibility the profile reflectors get in the MZI.
     Optional fields contain applied strain and temperature change [K] on
     the spatial grid. Missing fields mean zero perturbation.
-    time_fraction is t / sweep_duration on the ADC clock. If omitted,
-    assume an integer number of samples per sweep, as in earlier calls.
+    time_fraction is the propagation phase coordinate: t/T for a linear
+    chirp, s(t)/T for a warped sweep. The MZI supplies the same coordinate
+    used by the Rayleigh profile. It includes sweep errors, GVD and slow FM;
+    nu_inst independently sets the spectral envelope. If omitted, assume
+    a linear chirp with an integer number of samples per sweep.
     """
     n_t = nu_inst.shape[0]
     out = xp.zeros(n_t, dtype=xp.float64)

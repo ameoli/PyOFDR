@@ -304,8 +304,17 @@ A weak Bragg grating acts as a reflector with a sinc spectral response (`fiber/f
 
 with `nu_B = C/lambda_B`, `L_g` the physical grating length and
 `sinc(x) = sin(pi x)/(pi x)`. First null at `Delta_nu = C/(2 n L_g)`.
-Injected into the beat after the time-warp; in z-space the FBG is not a
-delta but a rect of width `L_g/dz` bins. Born is fine for `R_max <~ 0.5`;
+Added separately to the beat with carrier `cos(2*pi*k*s(t)/T)`, where `k`
+is the grating's rounded spatial bin and `s(t)` is the same warped time used
+for Rayleigh and ghost returns. The envelope uses the actual laser frequency
+`nu_inst`, while propagation phase includes sweep nonlinearity, ripple, GVD
+and slow FM. GVD changes this phase coordinate, not the frequency argument
+of the grating's envelope. White FM stays out of the propagation warp,
+consistently with the main-beat approximation; linewidth still supplies the
+coherence roll-off and frequency noise can modulate the spectral envelope.
+
+For a linear chirp, `s(t)=t`; in z-space the FBG is not a delta but a rect
+of width `L_g/dz` bins. Born is fine for `R_max <~ 0.5`;
 coupled-mode / transfer-matrix for strong gratings is V2 (#78).
 
 The configured `bragg_wavelength` is the unperturbed resonance. At each sweep,
@@ -323,11 +332,15 @@ field again.
 
 This is a small-perturbation model with a uniform field over each grating,
 sampled at the same rounded z-bin used for its beat phase and attenuation.
-It shifts the resonance without changing grating length, bandwidth, peak
-reflectivity or propagation phase. Gradients along a grating and the resulting
+Strain and temperature shift the resonance without changing grating length,
+bandwidth, peak reflectivity or adding their own propagation phase. Gradients along a grating and the resulting
 spectral distortion are not represented. The configured wavelength stays
 unchanged between sweeps; an effective wavelength that is nonpositive or
 nonfinite is rejected.
+
+`tests/test_fbg_nonlinearity.py` compares the beat with the analytic envelope
+and phase for quadratic/cubic sweep errors, ripple, both GVD signs and slow
+frequency noise, including fractional sample counts and repeated sweeps.
 
 Ref: Erdogan, J. Lightwave Technol. 15, 1277 (1997).
 
@@ -359,7 +372,8 @@ at bin `k` contributes `h[k] * exp(2*pi*i*k*t/T)`. An ordinary IFFT evaluates
 this expression only when `T*fs = N`. Otherwise, the main MZI uses ZoomFFT
 with the positive-exponent convention to evaluate the same sum on the actual
 sample times. Transform coefficients are reused across sweeps. The FBG carrier
-also uses `t/T`; its separate ideal-chirp phase approximation is unchanged.
+uses `t/T` for a linear chirp and shares `s(t)/T` with the warped fiber sum
+when nonlinearity, dispersion or slow FM is enabled.
 
 The unpadded FFT grid is different from the fiber grid for fractional counts:
 
@@ -431,10 +445,26 @@ the discrete-fiber model; it is not a model of laser reset or flyback.
 with direct Fourier sums, including fractional sample counts, sweep boundaries,
 polynomial distortion, ripple, GVD and slow FM. Tone errors are checked against
 `2e-7` of unit field amplitude and profile relative RMS errors against `2e-7`.
-The small-delay approximation remains, and sufficiently fast warps can still
-alias at the ADC: the nominal linear-sweep Nyquist check does not bound all
-instantaneous beat frequencies. FBG contributions retain their separate
-ideal-chirp propagation-phase approximation.
+The nominal configuration check covers the linear chirp. Before evaluating
+a warped beat, the main MZI also checks the unwrapped phase increments on
+the actual ADC clock. With `k_max = n_z-1`, the bound is
+
+    f_max = k_max/T * max(abs(1 + diff(delta_nu)/(gamma*dt)))
+
+Values at or above `1/(2*dt)` raise `ValueError`, before reducing `s/T`
+modulo one. Both signs and local excursions count; polynomial distortion,
+ripple, GVD and the realized slow FM all enter through `delta_nu`.
+The bound covers the full spatial grid, including ghosts and all cores,
+even when the last bins happen to be zero. A one-bin profile has only DC.
+White FM is excluded consistently with the main-beat model above.
+
+This guards the sampled phase increments, not strict spectral band limitation:
+modulation sidebands and excursions between source samples are not bounded.
+The small-delay approximation remains. FBG carriers share the same phase
+coordinate and are covered by the grid bound; their envelope bandwidth is
+not covered by this guard. Tests in `test_main_nyquist.py` cover both sides of
+Nyquist, short fast ripple, dispersion, local slow-FM excursions and the
+unchanged direct Fourier sum below the limit.
 
 ### Chromatic dispersion (GVD)
 Group-velocity dispersion enters through `beta2 = -lambda^2 D/(2 pi c)`.

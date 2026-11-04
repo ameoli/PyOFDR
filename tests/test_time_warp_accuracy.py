@@ -11,11 +11,11 @@ from pyofdr.source.swept_laser import SweptLaser
 from pyofdr.utils.constants import C
 
 
-def case(count, **source):
+def case(count, fill=.4999, **source):
     span = C * 40e-9 / (1550e-9)**2
     dz = C / (2 * 1.4682 * span)
     cfg = {**CFG,
-           "fiber": {**CFG["fiber"], "length": .4999 * count * dz, "n_cores": 2},
+           "fiber": {**CFG["fiber"], "length": fill * count * dz, "n_cores": 2},
            "source": {**CFG["source"], "sweep_duration": count / 200e6, **source},
            "optics": {"splitting_ratio": .5,
                       "circulator": {"insertion_loss_dB": 0,
@@ -45,7 +45,8 @@ def test_shifted_tone_preserves_amplitude_and_phase(count, bin_index, offset, re
 @pytest.mark.parametrize("count", [128, 128.4])
 @pytest.mark.parametrize("kind", ["polynomial", "ripple", "dispersion", "colored"])
 def test_warped_multicore_profile_matches_direct_sum(count, kind, record_property):
-    cfg, acq, span = case(count)
+    # Leave room for the warp to increase the highest beat frequency.
+    cfg, acq, span = case(count, fill=.45)
     T = cfg["source"]["sweep_duration"]
     t = acq.t
     gamma = span / T

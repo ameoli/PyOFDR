@@ -10,11 +10,12 @@ Layout:
     /fiber/z                spatial axis [m]
     /fiber/attenuation      round-trip attenuation envelope
     /fiber/strain_field     first sweep's strain eps(z), if present
-    /fiber/temperature_field applied dT(z) [K], if present
+    /fiber/temperature_field first sweep's applied dT(z) [K], if present
     /sweeps/0000/digital_main   (n_cores, n_t) int16 (int32 when adc.bits > 16)
     /sweeps/0000/analog_main    (n_cores, n_t) float32
     /sweeps/0000/aux_signal     (n_t,) float32, present iff aux MZI enabled
     /sweeps/0000/strain_field   (n_z,) applied strain eps(z), if present
+    /sweeps/0000/temperature_field (n_z,) applied dT(z) [K], if present
     /sweeps/0000/log            JSON string
 """
 
@@ -87,6 +88,9 @@ class HDF5Writer:
 
         if acq.strain_field is not None:
             grp.create_dataset("strain_field",  data=np.asarray(acq.strain_field))
+        if acq.temperature_field is not None:
+            grp.create_dataset("temperature_field",
+                               data=np.asarray(acq.temperature_field))
 
         if acq.digital_main is not None:
             grp.create_dataset("digital_main", data=np.asarray(acq.digital_main),

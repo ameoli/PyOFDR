@@ -160,7 +160,12 @@ class TestTimeWarpBounds:
             run_campaign(cfg)
         assert not any("time-warp" in str(x.message) for x in w)
 
-    def test_extreme_nonlinearity_warns(self):
-        cfg = _nl_cfg(a2=5e18)
+    def test_large_excursion_below_nyquist_warns(self):
+        cfg = _nl_cfg(a2=5e16)
         with pytest.warns(UserWarning, match="time-warp"):
+            run_campaign(cfg)
+
+    def test_extreme_nonlinearity_above_nyquist_is_rejected(self):
+        cfg = _nl_cfg(a2=5e18)
+        with pytest.raises(ValueError, match="main.*Nyquist"):
             run_campaign(cfg)
