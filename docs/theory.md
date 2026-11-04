@@ -81,14 +81,82 @@ Beer-Lambert. dB/km to Np/m is
 and the round-trip amplitude envelope is `env(z) = exp(-alpha_Np_m z)` (`fiber/attenuation.py`). Worth stating the convention: the envelope multiplies a field but represents round-trip power loss, because light walks the fiber twice (so field amplitude round-trip equals one-way power in dB). With heterogeneous segments we build an `alpha(z)` vector and integrate it cumulatively.
 
 ### Macrobending
-Empirical Marcuse-style form,
-    alpha_per_turn(R) = A exp(-R / R_c)    [dB/turn]
-defaults `A = 100 dB/turn`, `R_c = 5 mm` for SMF-28 (`fiber/bends.py`).
-Total loss `A turns exp(-R/R_c)` is spread uniformly over the bent segment as extra dB/km on top of the base alpha.
-Transition loss, whispering-gallery ripples and bend birefringence are out of scope (V2).
+`fiber/bends.py` provides three alternatives. The default `exponential` model
+uses `loss_per_turn = A exp(-R/R_c)` in dB/turn, with empirical starting values
+`A=100 dB/turn` and `R_c=5 mm`. The `tabulated` model interpolates log(loss)
+linearly against radius; it clamps to the nearest endpoint outside the table
+and issues a warning. Neither model infers wavelength dependence.
 
-Ref: Marcuse, "Curvature loss formula for optical fibers", JOSA 66, 216
-(1976).
+The `marcuse` model uses a circular step-index core of radius `a` and infinite
+cladding, with phase indices `n1 > n2`. Its straight-fiber LP01 mode is found
+from
+
+    k = 2*pi/lambda
+    V = k*a*sqrt(n1^2 - n2^2)
+    U^2 + W^2 = V^2
+    U*J1(U)/J0(U) = W*K1(W)/K0(W)
+    kappa = U/a, gamma = W/a
+    beta = sqrt((n2*k)^2 + gamma^2)
+
+The solver brackets the root in `log(W)` so small cladding decay constants
+remain resolved. `J` and `K` are the ordinary and modified Bessel functions.
+This scalar weak-guidance mode is not a full vector HE11 solution. The
+implementation accepts `0 < V < 2.4048255577` and
+`delta=(n1^2-n2^2)/(2*n1^2) <= 0.01`; the latter is a conservative numerical
+scope restriction, not an exact physical boundary for weak guidance.
+The phase indices must be supplied separately from the OFDR group index.
+
+Writing `q = 2*alpha` for the **power** decay coefficient in inverse metres,
+Marcuse's LP01 expression is
+
+    R_eff = radius_correction * R
+    q = sqrt(pi)*kappa^2 / (2*gamma^(3/2)*V^2*sqrt(R_eff)*K1(W)^2)
+        * exp(-2*gamma^3*R_eff/(3*beta^2))
+    P_out/P_in = exp(-q*L)
+    loss_dB = (10/ln(10))*q*L,  L = 2*pi*R*turns
+
+The usual silica stress correction is `R_eff/R = 1.28`; setting it to 1
+recovers the uncorrected model. It changes the radiation coefficient while
+the arc length still uses the physical radius. The implementation evaluates
+the expression in log form and lets negligible losses underflow to zero.
+It does not exponentiate a large positive optical depth to convert to dB.
+
+The total one-way loss is spread uniformly over `[start, end)` as extra
+dB/km. It enters the existing distributed-loss integral, so direct returns
+see the usual round-trip field factor `10^(-loss_dB/10)`, and ghosts count
+the actual number of passages through the bent region.
+
+The analytic calculation uses the source centre wavelength and fixed phase
+indices. During an OFDR sweep the resulting envelope is held constant; this
+does not model spectral bend filtering or material dispersion across a wide
+sweep. The approximation assumes weak guidance, gently curved fiber
+(`R_eff` much larger than `a`) and a nearly unchanged mode shape. Coating
+reflections, transition loss, whispering-gallery oscillations and bend-induced
+birefringence remain outside the model (#57). Predicting a particular
+commercial fiber still requires its optical parameters and measurements.
+
+References: [Marcuse, JOSA 66, 216-220 (1976)](https://doi.org/10.1364/JOSA.66.000216);
+[Martins et al., Conftele 2009, Eq. (4) and Table I](https://www.researchgate.net/publication/231179029_Modeling_of_Bend_Losses_in_Single-Mode_Optical_Fibers).
+The effective-radius treatment is also discussed by
+[Schermer and Cole, IEEE JQE 43, 899-909 (2007)](https://doi.org/10.1109/JQE.2007.903364).
+
+For the Martins waveguide (`a=4.1 um`, `n2=1.440`, `NA=0.117`), numerical
+reference values at `R=10 mm`, one turn and correction 1.28 are:
+
+| wavelength | W | one-way loss [dB] |
+| --- | --- | --- |
+| 1310 nm | 1.63441932659613 | 0.0592091599471278 |
+| 1550 nm | 1.22651814034357 | 3.35620476859821 |
+| 1625 nm | 1.12338156463537 | 8.21001752202825 |
+
+These values were computed independently with 70-digit arithmetic, bisecting
+`b=W^2/V^2` for 240 iterations with the cross-multiplied continuity equation.
+They are evaluations of the stated model using published waveguide parameters,
+not measured values or a reproduction of the paper's experimental curves.
+`tests/test_marcuse_bends.py` checks nine loss cases at relative tolerance
+`2e-10`, mode parameters at `2e-12`, continuity at the core boundary, physical
+arc length, unit scaling, invalid inputs, and integration with direct and ghost
+attenuation. No extra dependency is needed to run these tests.
 
 ### Discrete reflectors and connectors
 A point reflector adds `r = sqrt(R) exp(j phi)` at its nearest spatial bin

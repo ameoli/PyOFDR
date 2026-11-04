@@ -180,7 +180,7 @@ class TestBendConfigValidation:
     def test_unknown_model_rejected(self):
         with pytest.raises(ValueError):
             RootConfig(**self._cfg({"start": 0.4, "end": 0.5, "radius": 10e-3,
-                                     "turns": 1, "model": "marcuse"}))
+                                     "turns": 1, "model": "unknown"}))
 
     def test_table_accepts_unit_strings(self):
         cfg = RootConfig(**self._cfg({"start": 0.4, "end": 0.5, "radius": "10 mm",

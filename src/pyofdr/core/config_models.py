@@ -123,17 +123,25 @@ class BendTablePoint(_Strict):
     dB_per_turn: float  = Field(..., gt=0)
 
 
+class MarcuseBendConfig(_Strict):
+    core_radius: Length = Field(..., gt=0, allow_inf_nan=False)
+    core_index: float = Field(..., gt=1, allow_inf_nan=False)
+    cladding_index: float = Field(..., ge=1, allow_inf_nan=False)
+    radius_correction: float = Field(1.28, gt=0, allow_inf_nan=False)
+
+
 class BendSegment(_Strict):
     start:  Length
     end:    Length
     radius: Length = Field(..., gt=0)
     turns:  float  = Field(..., gt=0)
-    model:  Literal["exponential", "tabulated"] = "exponential"
+    model:  Literal["exponential", "tabulated", "marcuse"] = "exponential"
     # exponential: SMF-28 ballparks; override for other fibers
     A_dB_per_turn: float = Field(100.0, gt=0)
     R_c:           Length = Field(5e-3,  gt=0)
     # tabulated: measured / datasheet points, needs at least 2
     table: list[BendTablePoint] | None = None
+    marcuse: MarcuseBendConfig | None = None
 
     @model_validator(mode="after")
     def _check_order(self):
@@ -146,7 +154,11 @@ class BendSegment(_Strict):
             if len(set(radii)) != len(radii):
                 raise ValueError("bend table has duplicate radii")
         elif self.table is not None:
-            raise ValueError("bend table given but model is 'exponential'")
+            raise ValueError("a bend table is only used by model='tabulated'")
+        if self.model == "marcuse" and self.marcuse is None:
+            raise ValueError("model='marcuse' needs core_radius, core_index and cladding_index")
+        if self.model != "marcuse" and self.marcuse is not None:
+            raise ValueError("Marcuse parameters require model='marcuse'")
         return self
 
 
@@ -391,6 +403,17 @@ class RootConfig(_Strict):
     detection:   DetectionConfig   = Field(default_factory=DetectionConfig)
     adc:         ADCConfig         = Field(default_factory=ADCConfig)
     output:      OutputConfig      = Field(default_factory=OutputConfig)
+
+    @model_validator(mode="after")
+    def _check_marcuse_bends(self):
+        # Catch unsupported fibers in `pyofdr validate`, before a campaign starts.
+        from pyofdr.fiber.bends import marcuse_bend_loss_dB
+        for bend in self.fiber.bends:
+            if bend.model == "marcuse":
+                marcuse_bend_loss_dB(bend.radius, bend.turns,
+                                     self.source.center_wavelength,
+                                     **bend.marcuse.model_dump())
+        return self
 
     @model_validator(mode="after")
     def _check_nyquist(self):

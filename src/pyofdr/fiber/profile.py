@@ -180,7 +180,7 @@ class FiberGenerator(PipelineStep):
                 seg_len_m = bend["end"] - bend["start"]
                 if seg_len_m <= 0:
                     continue
-                total_dB = bend_loss_total_dB(bend)
+                total_dB = bend_loss_total_dB(bend, wavelength=self.center_wl)
                 extra_dB_km = total_dB / (seg_len_m / 1000.0)
                 mask = (z >= bend["start"]) & (z < bend["end"])
                 alpha_z = xp.where(mask, alpha_z + extra_dB_km, alpha_z)
