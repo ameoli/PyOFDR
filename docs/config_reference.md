@@ -84,20 +84,64 @@ Nested blocks (all optional, default `None`):
 
 ### fiber.bends[]
 
-Macrobending. Two models per bend (#36, #90): `exponential` (default,
-Marcuse-style `A*exp(-R/R_c)`, SMF-28 ballparks) or `tabulated`
-(interpolate your datasheet / measured points, log-linear in R; radii
-outside the table clamp to the edge with a warning).
+Macrobending. Choose `exponential` for the empirical `A*exp(-R/R_c)` law,
+`tabulated` for measured loss per turn, or `marcuse` for an analytic LP01
+step-index model. Tabulated loss uses log-linear interpolation in radius
+and clamps outside the table range with a warning.
 
 | field | type | default | description |
 | --- | --- | --- | --- |
 | `start`, `end` | length | -- | segment bounds |
 | `radius` | length > 0 | -- | bend radius |
 | `turns` | float > 0 | -- | number of turns over the segment |
-| `model` | `exponential` / `tabulated` | `exponential` | loss model |
+| `model` | `exponential` / `tabulated` / `marcuse` | `exponential` | loss model |
 | `A_dB_per_turn` | float > 0 | 100.0 | empirical prefactor (exponential) |
 | `R_c` | length > 0 | 5e-3 | critical radius (exponential) |
 | `table[]` | `{radius, dB_per_turn}`, >= 2 | -- | loss points (tabulated) |
+| `marcuse` | mapping below | -- | waveguide parameters, required only for `marcuse` |
+
+The `marcuse` mapping contains:
+
+| field | type | default | description |
+| --- | --- | --- | --- |
+| `core_radius` | length > 0 | -- | radius of the core, not the cladding |
+| `core_index` | float > 1 | -- | core phase index at the source centre wavelength |
+| `cladding_index` | float >= 1 | -- | cladding phase index, smaller than `core_index` |
+| `radius_correction` | float > 0 | 1.28 | `R_eff/R`; use 1.0 to disable the silica stress correction |
+
+These phase indices are independent of `fiber.n_core`, which sets the OFDR
+group delay. The calculation uses `source.center_wavelength`; the loss stays
+constant during a sweep. `pyofdr validate` rejects non-finite parameters,
+`V >= 2.4048255577`, relative index difference `delta > 0.01`, and bend or
+effective radii no larger than the core. Extremely weak confinement that the
+mode solver cannot resolve is also rejected. The delta bound is a conservative
+implementation limit for the weak-guidance approximation.
+
+For example, using the waveguide parameters from Martins et al. (2009),
+Table I (`NA=0.117`, so `core_index=sqrt(1.440^2+0.117^2)`):
+
+```yaml
+fiber:
+  length: "1 m"
+  bends:
+    - start: "0.2 m"
+      end: "0.263 m"
+      radius: "10 mm"
+      turns: 1
+      model: marcuse
+      marcuse:
+        core_radius: "4.1 um"
+        core_index: 1.444745306273739
+        cladding_index: 1.440
+        radius_correction: 1.28
+source:
+  center_wavelength: "1550 nm"
+```
+
+This gives about **3.3562 dB one-way** for the turn. The interval places that
+loss along the simulated fiber; the arc length used in the formula is
+`2*pi*radius*turns`. These example parameters are not universal SMF-28 defaults.
+See [the theory guide](theory.md#macrobending) for equations, references and limits.
 
 ### fiber.reflectors[]
 
