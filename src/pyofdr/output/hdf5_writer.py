@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 import h5py
@@ -41,14 +42,27 @@ class HDF5Writer:
     # -- context manager --------------------------------------------------
 
     def __enter__(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = h5py.File(self.path, "w")
+        self._target = self.path.resolve()
+        self._target.parent.mkdir(parents=True, exist_ok=True)
+        # Close the temporary handle before h5py opens it on Windows.
+        with NamedTemporaryFile(dir=self._target.parent, prefix=".pyofdr-",
+                                suffix=".tmp", delete=False) as tmp:
+            self._pending = Path(tmp.name)
+        try:
+            self._file = h5py.File(self._pending, "w")
+        except BaseException:
+            self._pending.unlink(missing_ok=True)
+            raise
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self._file is not None:
+        try:
             self._file.close()
+            if exc_type is None:
+                self._pending.replace(self._target)
+        finally:
             self._file = None
+            self._pending.unlink(missing_ok=True)
         return False
 
     # -- writing helpers --------------------------------------------------

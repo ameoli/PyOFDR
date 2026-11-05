@@ -515,6 +515,11 @@ adc:
 
 ## output
 
+Each sweep streams to a temporary file in the destination directory. Once all
+sweeps finish and the HDF5 file closes successfully, it atomically replaces
+`output.path`. A failed run leaves any previous output intact. When replacing
+a file, allow disk space for both the previous and the new result.
+
 `source.sweep_duration` and `adc.sample_rate` are preserved even when their
 product is fractional. The sample count is its ceiling, except for roundoff
 within four ULPs of an integer. The main beat and FBG phase use the actual

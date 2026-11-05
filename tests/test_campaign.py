@@ -288,6 +288,37 @@ class TestCampaignWithoutCollection:
 
 class TestHDF5Writer:
 
+    @pytest.mark.parametrize("previous_output", [True, False])
+    def test_failed_campaign_discards_partial_output(self, tmp_path, monkeypatch, previous_output):
+        path = tmp_path / "campaign.h5"
+        cfg = {"fiber": {"length": .1}, "source": {"sweep_duration": 1e-4},
+               "output": {"path": str(path)}}
+        if previous_output:
+            run_campaign(cfg)
+            before = path.read_bytes()
+
+        write_sweep = HDF5Writer.write_sweep
+
+        def fail_on_second_sweep(writer, acq, sweep_index):
+            write_sweep(writer, acq, sweep_index)
+            if sweep_index == 1:
+                raise OSError("write interrupted")
+
+        cfg["simulation"] = {"n_sweeps": 2}
+        with monkeypatch.context() as patch:
+            patch.setattr(HDF5Writer, "write_sweep", fail_on_second_sweep)
+            with pytest.raises(OSError, match="write interrupted"):
+                run_campaign(cfg, keep_acquisitions=False)
+
+        assert set(tmp_path.iterdir()) == ({path} if previous_output else set())
+        if previous_output:
+            assert path.read_bytes() == before
+
+        run_campaign(cfg, keep_acquisitions=False)
+        import h5py
+        with h5py.File(path) as f:
+            assert list(f["sweeps"]) == ["0000", "0001"]
+
     def test_write_and_read_back(self, tmp_path):
         acq = run_campaign(CFG)[-1]
         derived = compute_derived(CFG)
