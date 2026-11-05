@@ -78,6 +78,17 @@ class TestADCJitter:
         b = run_campaign(self._cfg(jitter_rms=0.0))[-1]
         np.testing.assert_array_equal(a.digital_main, b.digital_main)
 
+    def test_one_sample_with_jitter(self):
+        cfg = {"fiber": {"length": .01, "n_cores": 2},
+               "source": {"sweep_range": 1e-15, "sweep_duration": 1e-8, "linewidth": 0.},
+               "adc": {"sample_rate": 1e8, "enob": 10},
+               "simulation": {"seed": 42}}
+        baseline = run_campaign(cfg)[0]
+        cfg["adc"]["jitter_rms"] = 1e-12
+        result = run_campaign(cfg)[0]
+        assert result.digital_main.shape == (2, 1)
+        np.testing.assert_array_equal(result.digital_main, baseline.digital_main)
+
     def test_jitter_increases_noise(self):
         # need strong signal so dV/dt * sigma_j >> quantization step
         cfg_base = {**self._cfg(), "source": {**CFG["source"], "power": 1.0}}

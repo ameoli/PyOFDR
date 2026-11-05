@@ -133,7 +133,7 @@ class ADC(PipelineStep):
         # aperture jitter -- each sample is taken at t + dt_err, so the
         # voltage error is  dV/dt * dt_err  where dt_err ~ N(0, sigma_j)
         # (first order Taylor approx, good enough for sub-ns jitter)
-        if self.jitter_rms > 0:
+        if self.jitter_rms > 0 and analog.shape[-1] > 1:
             n_c, n  = analog.shape
 
             # dV/dt via forward difference, pad last sample
