@@ -38,7 +38,7 @@ DispersionD = Annotated[float, BeforeValidator(_parse("second/meter**2"))]
 
 
 class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class SimulationConfig(_Strict):
