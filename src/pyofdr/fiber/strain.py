@@ -27,6 +27,7 @@ from typing import Any
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config import sweep_period
 from pyofdr.core.pipeline import PipelineStep
+from pyofdr.fiber.phase import phase_at_bins
 from pyofdr.strain_transfer import CoxShearLag, IdealTransfer, realize_segments
 from pyofdr.strain_transfer.motions import check_motion_sampling
 
@@ -101,9 +102,7 @@ class StrainPerturbation(PipelineStep):
 
         k0 = 2.0 * math.pi / self.center_wl
         prefactor = 2.0 * k0 * self.n_core * (1.0 - self.p_e)
-        # plain left Riemann sum -- dz is the spatial bin so it's
-        # accurate to within ~half a bin past the segment edge
-        phase = prefactor * xp.cumsum(eps_fiber) * dz
+        phase = phase_at_bins(eps_fiber, dz, prefactor, xp)
 
         acq.strain_field = eps_fiber
         # uniform axial strain affects every core the same way

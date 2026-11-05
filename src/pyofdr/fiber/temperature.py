@@ -33,6 +33,7 @@ from typing import Any
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config import sweep_period
 from pyofdr.core.pipeline import PipelineStep
+from pyofdr.fiber.phase import phase_at_bins
 from pyofdr.strain_transfer.motions import check_motion_sampling, evaluate_motion
 
 
@@ -90,8 +91,7 @@ class TemperaturePerturbation(PipelineStep):
 
         k0 = 2.0 * math.pi / self.center_wl
         prefactor = 2.0 * k0 * self.n_core * (self.alpha_L + self.xi)
-        # left Riemann sum, same as the strain step
-        phase = prefactor * xp.cumsum(dT) * dz
+        phase = phase_at_bins(dT, dz, prefactor, xp)
 
         acq.temperature_field = dT
         acq.fiber_profile = acq.fiber_profile * xp.exp(1j * phase)

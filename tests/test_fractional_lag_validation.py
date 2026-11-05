@@ -117,7 +117,7 @@ def test_recovery_with_independent_acquisition_noise(seed, balanced,
                      else measured.temperature_field)
     wavelength = cfg["source"]["center_wavelength"]
     phase = (4 * np.pi * cfg["fiber"]["n_core"] / wavelength
-             * coefficient * np.cumsum(applied_field) * measured.dz)
+             * coefficient * np.r_[0., np.cumsum(applied_field[:-1])] * measured.dz)
     # Undo only the known physical perturbation: the complex fingerprint,
     # not just its magnitude, must match the reference.
     np.testing.assert_allclose(
