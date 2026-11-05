@@ -179,6 +179,11 @@ setting is needed. The local values represent the whole grating, so gradients
 within its length do not broaden the spectrum. See the FBG section in
 `theory.md` for the shift formula and approximations.
 
+FBG propagation phase follows the same warped time as the main Rayleigh beat,
+including sweep errors, ripple, dispersion and slow frequency noise. The
+spectral envelope uses the instantaneous laser frequency. The main Nyquist
+guard covers the grating carrier, but not the envelope's bandwidth.
+
 ### fiber.index_segments[]
 
 Static delta_n perturbation. Small-signal: bin positions don't move, only
@@ -454,8 +459,9 @@ noise terms (shot/thermal/dark), and optional saturation + nonlinearity.
 linear term is implicit identity. Empty list = no polynomial distortion.
 `saturation_current` clips each diode's polynomial response to `[0, I_sat]`,
 including reference-arm DC, before balanced subtraction or single-ended
-static-baseline removal. Shot noise uses the limited per-diode currents;
-noise is added after clipping. The limit is not a TIA output-voltage limit.
+static-baseline removal. Shot noise uses the nonnegative current of each
+diode after its polynomial response and any clipping. The limit applies to
+the photodiode current, upstream of the TIA.
 The reference DC uses the configured mean laser power, as detailed in the
 [theory guide](theory.md#saturation).
 
@@ -521,6 +527,13 @@ each sweep's attributes, together with `frequency_step_hz`. Each sweep records
 `n_samples` and `dt` as well. See the sample-grid discussion in `theory.md`
 before cropping, padding or k-clock resampling.
 
+Applied strain and temperature are saved per sweep as
+`/sweeps/0000/strain_field` and `/sweeps/0000/temperature_field`, and similarly
+for subsequent sweeps. Both use `/fiber/z` as their spatial axis; temperature
+values are changes in K, not absolute temperatures. The corresponding
+`/fiber/` datasets contain only the first sweep's fields. Fields are omitted
+when their perturbation is not configured.
+
 | field | type | default | description |
 | --- | --- | --- | --- |
 | `path` | str \| None | None | HDF5 output path; None = no file output |
@@ -544,6 +557,15 @@ If this fails the config is rejected with a message naming both
 quantities in MHz. Knobs that move `f_beat_max`: `fiber.length`,
 `fiber.n_core`, `source.sweep_range`, `source.sweep_duration`,
 `source.center_wavelength`.
+
+For a nonlinear main beat, a runtime check also bounds the unwrapped phase
+advance between ADC samples over the full spatial grid. Polynomial sweep
+errors, ripple, dispersion and the realized slow frequency noise are included.
+Reaching or exceeding Nyquist raises an error before generating the beat,
+even if the auxiliary MZI is disabled. Increase `adc.sample_rate`, shorten
+the fiber or reduce the excursions to bring the bound below Nyquist.
+Configuration validation alone only checks the nominal linear chirp;
+see `theory.md` for the sampled-phase guard and its limits.
 
 For an enabled auxiliary MZI, validation also checks the nominal beat using
 its rounded sample delay, independently of the fiber length. This catches

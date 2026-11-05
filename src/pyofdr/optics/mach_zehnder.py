@@ -118,8 +118,9 @@ class MachZehnder(PipelineStep):
 
         samples_per_sweep = self.sweep_duration / acq.dt
         integer_sweep = abs(samples_per_sweep - acq.n_samples) <= 4 * math.ulp(samples_per_sweep)
+        warped_fraction = None
         if self._has_nonlinearity:
-            beat = self._apply_time_warp(weighted, acq)
+            beat, warped_fraction = self._apply_time_warp(weighted, acq)
         elif integer_sweep:
             n_pad = acq.n_samples - n_z
             h = xp.concatenate([
@@ -137,15 +138,15 @@ class MachZehnder(PipelineStep):
                 self._beat_transform_key = key
             beat = xp.conj(self._beat_transform(xp.conj(weighted), axis=-1))
 
-        # weak FBG arrays. added after the time-warp so the sinc envelope
-        # uses the actual nu_inst; the phase term doesn't get warped, but
-        # the residual delta_nu/gamma error is small in practice.
+        # FBGs share the propagation phase of the fiber sum. Their spectral
+        # envelope still uses the laser frequency, without the GVD phase term.
         if self.fbg_arrays:
             fbg_real = weak_fbg_signal(
                 self.fbg_arrays, acq.dz, n_z,
                 acq.attenuation_envelope, acq.nu_inst,
                 self.n_core, linewidth=self.linewidth, xp=xp,
-                time_fraction=acq.t / self.sweep_duration,
+                time_fraction=(warped_fraction if warped_fraction is not None
+                               else acq.t / self.sweep_duration),
                 strain_field=acq.strain_field,
                 temperature_field=acq.temperature_field,
                 photoelastic_coefficient=self.config["strain"]["photoelastic_coefficient"],
@@ -187,7 +188,7 @@ class MachZehnder(PipelineStep):
         return acq
 
     def _apply_time_warp(self, weighted, acq):
-        """Evaluate the weighted fiber's Fourier sum at the warped times.
+        """Return the warped fiber sum and its phase coordinate s/T.
 
         For a scatterer at round-trip delay tau the physical beat phase
         is 2*pi*tau*nu(t) (small tau), while the ideal-chirp beat at time
@@ -231,6 +232,23 @@ class MachZehnder(PipelineStep):
         if self._has_slow_phase_noise and acq.nu_noise is not None:
             delta_nu = delta_nu + acq.nu_noise
 
+        # Bin k has unwrapped phase 2*pi*k*s/T. Check its fastest sampled
+        # increment before taking s modulo T, which would hide aliasing.
+        if not xp.all(xp.isfinite(delta_nu)):
+            raise ValueError("main MZI frequency deviation must be finite")
+        n_c, n_z = weighted.shape
+        if n > 1 and n_z > 1:
+            rate = 1.0 + xp.diff(delta_nu) / (gamma * acq.dt)
+            max_beat = (n_z - 1) / T * float(xp.max(xp.abs(rate)))
+            if not math.isfinite(max_beat):
+                raise ValueError("main MZI beat frequency must be finite")
+            if max_beat >= 0.5 / acq.dt:
+                raise ValueError(
+                    f"main MZI beat bound {max_beat*1e-6:.6g} MHz reaches or exceeds "
+                    f"Nyquist {0.5/acq.dt*1e-6:.6g} MHz; increase adc.sample_rate, "
+                    "reduce fiber.length or reduce sweep/dispersion/noise excursions"
+                )
+
         # warped time: where in the "ideal" timeline each real sample falls
         s = t + delta_nu / gamma
 
@@ -248,7 +266,6 @@ class MachZehnder(PipelineStep):
         # Centre the Fourier band around zero before spline interpolation.
         # With 16*n_z points it has >=32 samples per fastest cycle.
         # The period is T, not n_samples*dt.
-        n_c, n_z = weighted.shape
         n_grid = next_fast_len(16 * n_z)
         fraction = xp.remainder(s / T, 1.0)
         coordinates = (fraction * n_grid)[None, :]
@@ -263,4 +280,4 @@ class MachZehnder(PipelineStep):
             grid = self.bk.fft.ifft(spectrum) * n_grid
             warped[c] = carrier * map_coordinates(grid, coordinates, order=5, mode="grid-wrap")
 
-        return warped
+        return warped, s / T

@@ -85,6 +85,14 @@ When strain is present, each sweep stores its applied field in
 The older `/fiber/strain_field` dataset is kept and contains the first
 sweep's field; use the per-sweep datasets for dynamic strain.
 
+Temperature follows the same convention: each sweep saves its applied
+`temperature_field` in `/sweeps/0000/temperature_field`, etc., as a
+one-dimensional array of temperature changes in K on `/fiber/z`.
+`/fiber/temperature_field` retains only the first sweep's field for compatibility.
+Per-sweep fields are saved for static and dynamic temperature, including zero
+changes, and in streaming mode (`keep_acquisitions=False`). If temperature is
+not configured, no temperature datasets are created.
+
 ## Configuration and units
 
 `load_config(path)` in `core/config.py` reads YAML, validates it with

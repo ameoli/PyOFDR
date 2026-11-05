@@ -84,58 +84,8 @@ class Detector(PipelineStep):
 
         # convert optical power to current
         I = acq.photocurrent_main * self.responsivity
-        linear_current = I
-
-        # small-signal photodiode nonlinearity. In balanced mode we
-        # reconstruct per-PD currents as I_dc +- I_beat, apply the polynomial
-        # to each (matched PDs), and subtract -- this keeps the DC*beat
-        # mixing that would otherwise be absent from a polynomial applied
-        # to the already-differenced signal. Single-ended: the one PD sits
-        # at I_dc + I_beat, so expand the polynomial there and drop the
-        # static part (signal path is AC-coupled, #91) -- the mixing terms
-        # survive just like in the balanced case (#98).
-        if self.nl_coeffs:
-            if self.balanced:
-                # per-PD beat is half the stored full difference
-                I_A = self.dc_current + I / 2.0
-                I_B = self.dc_current - I / 2.0
-                I_A_nl = I_A
-                I_B_nl = I_B
-                for k, a in enumerate(self.nl_coeffs, start=2):
-                    if a != 0:
-                        I_A_nl = I_A_nl + a * I_A ** k
-                        I_B_nl = I_B_nl + a * I_B ** k
-                I = I_A_nl - I_B_nl
-            else:
-                I_pd = self.dc_current + I
-                for k, a in enumerate(self.nl_coeffs, start=2):
-                    if a != 0:
-                        I = I + a * (I_pd ** k - self.dc_current ** k)
-
-        # Saturation belongs to each diode, before subtraction/AC coupling.
-        # Apply the polynomial first so it cannot push the output past I_sat.
-        shot_current_a = None
-        shot_current_b = None
-        if self.saturation_current is not None:
-            def response(current):
-                raw = current
-                for k, a in enumerate(self.nl_coeffs, start=2):
-                    if a != 0:
-                        raw = raw + a * current**k
-                return raw, xp.clip(raw, 0.0, self.saturation_current)
-
-            if self.balanced:
-                raw_a, limited_a = response(self.dc_current + linear_current/2)
-                raw_b, limited_b = response(self.dc_current - linear_current/2)
-                shot_current_b = limited_b
-            else:
-                raw_a, limited_a = response(self.dc_current + linear_current)
-                raw_b, limited_b = response(self.dc_current)
-            clipped = (limited_a != raw_a) | (limited_b != raw_b)
-            # Keep the existing small-signal calculation where no clipping occurs;
-            # subtracting two large DC currents there would lose precision.
-            I = xp.where(clipped, limited_a - limited_b, I)
-            shot_current_a = limited_a
+        if self.nl_coeffs or self.saturation_current is not None or self.shot_noise_enabled:
+            I, current_a, current_b = self._diode_response(I)
 
         if self.balanced:
             # In the linear limit, the two PDs see complementary MZI arms.
@@ -151,14 +101,9 @@ class Detector(PipelineStep):
             if self.shot_noise_enabled:
                 sa = xp.stack([r.standard_normal(n) for r in rngs_shot_a])
                 sb = xp.stack([r.standard_normal(n) for r in rngs_shot_b])
-                if shot_current_a is None:
-                    # Unsaturated reference-dominated approximation.
-                    sigma_shot = math.sqrt(2.0 * E_CHARGE * self.dc_current * bw)
-                    I = I + sigma_shot * (sa - sb)
-                else:
-                    sigma_a = xp.sqrt(2.0 * E_CHARGE * shot_current_a * bw)
-                    sigma_b = xp.sqrt(2.0 * E_CHARGE * shot_current_b * bw)
-                    I = I + sigma_a*sa - sigma_b*sb
+                sigma_a = xp.sqrt(2.0 * E_CHARGE * xp.maximum(current_a, 0.0) * bw)
+                sigma_b = xp.sqrt(2.0 * E_CHARGE * xp.maximum(current_b, 0.0) * bw)
+                I = I + sigma_a*sa - sigma_b*sb
 
             if self.thermal_nep > 0:
                 # single TIA sits after the subtraction node
@@ -182,8 +127,7 @@ class Detector(PipelineStep):
             # Shot noise uses the total current, even though the static
             # baseline has been removed from the signal path.
             if self.shot_noise_enabled:
-                collected = (xp.maximum(self.dc_current + I, 0.0)
-                             if shot_current_a is None else shot_current_a)
+                collected = xp.maximum(current_a, 0.0)
                 shot_var = 2.0 * E_CHARGE * collected * bw
                 shot = xp.stack([r.standard_normal(n) for r in rngs_shot])
                 I = I + xp.sqrt(shot_var) * shot
@@ -211,3 +155,30 @@ class Detector(PipelineStep):
                      saturation_current=self.saturation_current,
                      nonlinearity_coefficients=tuple(self.nl_coeffs))
         return acq
+
+    def _diode_response(self, beat):
+        """Return the AC signal and total currents before DC removal."""
+        xp = self.bk.xp
+        if self.balanced:
+            input_a = self.dc_current + beat/2
+            input_b = self.dc_current - beat/2
+        else:
+            input_a = self.dc_current + beat
+            input_b = self.dc_current  # static baseline
+
+        current_a, current_b = input_a, input_b
+        for order, coeff in enumerate(self.nl_coeffs, start=2):
+            if coeff != 0:
+                a, b = input_a**order, input_b**order
+                current_a = current_a + coeff*a
+                current_b = current_b + coeff*b
+                beat = beat + coeff*(a - b)
+
+        if self.saturation_current is not None:
+            limited_a = xp.clip(current_a, 0.0, self.saturation_current)
+            limited_b = xp.clip(current_b, 0.0, self.saturation_current)
+            clipped = (limited_a != current_a) | (limited_b != current_b)
+            # Keep small beats clear of DC subtraction unless a diode clips.
+            beat = xp.where(clipped, limited_a - limited_b, beat)
+            return beat, limited_a, limited_b
+        return beat, current_a, current_b

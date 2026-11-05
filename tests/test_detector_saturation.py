@@ -69,6 +69,20 @@ def test_inactive_limit_preserves_noiseless_response(balanced, coefficients):
 
 
 @pytest.mark.parametrize("balanced", [False, True])
+def test_inactive_limit_preserves_nonlinear_shot_noise(balanced):
+    beat = np.repeat([0., .001, -.001], 50000)
+    cfg = config(balanced, None, nonlinearity_coefficients=[400.], shot_noise=True)
+    uncapped = current(beat, cfg)
+    cfg["detection"]["saturation_current"] = 1.
+    np.testing.assert_array_equal(current(beat, cfg), uncapped)
+
+    # For F(i) = i + 400*i^2, the DC alone gives 5 mA per diode.
+    total_mA = [10., 10.2, 10.2] if balanced else [5., 8.4, 2.4]
+    expected = 2*E_CHARGE*np.array(total_mA)*1e-3*100e6
+    np.testing.assert_allclose(np.var(uncapped.reshape(3, -1), axis=1), expected, rtol=.03)
+
+
+@pytest.mark.parametrize("balanced", [False, True])
 @pytest.mark.parametrize("limit", [.001, .0025, .01])
 def test_shot_noise_uses_collected_current(balanced, limit):
     cfg = config(balanced, limit, shot_noise=True)

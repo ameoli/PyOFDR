@@ -128,7 +128,7 @@ class TestNoiseReachesTheBeat:
     def test_flicker_raises_the_pedestal(self):
         # noise floor away from the reflector peak must come up
         clean = self._beat()
-        noisy = self._beat(flicker_noise_Hz=3e7)
+        noisy = self._beat(flicker_noise_Hz=2e7)  # keep the full fiber below Nyquist
         spec_c = np.abs(np.fft.rfft(clean.photocurrent_main[0]))
         spec_n = np.abs(np.fft.rfft(noisy.photocurrent_main[0]))
         peak = np.argmax(spec_c)
@@ -136,6 +136,10 @@ class TestNoiseReachesTheBeat:
         lo = peak + peak // 2
         hi = 3 * peak
         assert np.median(spec_n[lo:hi]) > 10.0 * np.median(spec_c[lo:hi])
+
+    def test_flicker_above_main_nyquist_is_rejected(self):
+        with pytest.raises(ValueError, match="main.*Nyquist"):
+            self._beat(flicker_noise_Hz=3e7)
 
     def test_noise_reaches_the_aux_clock(self):
         # the k-clock shares the laser so it must jitter too
