@@ -48,6 +48,22 @@ def test_validate_rejects_bad_config(tmp_path, capsys):
     assert "invalid config" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("command", ["validate", "run"])
+def test_nan_strain_is_rejected_before_simulation(tmp_path, capsys, command):
+    path = tmp_path / "nan.yaml"
+    path.write_text("fiber: {length: 0.15}\nsource: {sweep_duration: 0.0001}\n"
+                    "strain: {segments: [{start: 0, end: 0.1, epsilon: .nan}]}\n")
+    output = tmp_path / "result.h5"
+    args = [command, str(path)]
+    if command == "run":
+        args.extend(["-o", str(output)])
+    assert main(args) == 1
+    error = capsys.readouterr().err
+    assert "invalid config" in error
+    assert "strain.segments.0.epsilon" in error
+    assert not output.exists()
+
+
 def _write_run_cfg(tmp_path, output_path=None):
     """small CFG dumped to YAML, optionally with output.path set."""
     cfg = {**CFG}

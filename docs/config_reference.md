@@ -10,6 +10,8 @@ models in `core/config_models.py`. This page is the schema reference; for
 - **SI everywhere** inside the validated dict. The YAML accepts unit strings
   (`"40 nm"`, `"10 ms"`, `"17 ps/(nm km)"`) via pint, or bare numbers already
   in SI.
+- Numeric inputs must be finite, including list entries and values converted
+  from unit strings.
 - **`extra = "forbid"`** on every block: typos in field names raise on load.
 - All defaults below are taken straight from the model -- omit a field to
   get its default.

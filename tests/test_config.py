@@ -10,6 +10,17 @@ from pyofdr.core.config_models import RootConfig
 
 class TestConfigValidation:
 
+    @pytest.mark.parametrize("cfg,field", [
+        ({"fiber": {"dispersion_D": "nan ps/(nm km)"}}, "fiber.dispersion_D"),
+        ({"detection": {"nonlinearity_coefficients": [0, float("inf")]}},
+         "detection.nonlinearity_coefficients.1"),
+        ({"source": {"sweep_nonlinearity_a2": "-inf"}}, "source.sweep_nonlinearity_a2"),
+    ])
+    def test_nonfinite_input_is_rejected(self, cfg, field):
+        with pytest.raises(ValueError) as error:
+            RootConfig(**cfg)
+        assert field in str(error.value)
+
     def test_load_basic_config(self):
         cfg = load_config(REPO_ROOT / "configs" / "ofdr_basic.yaml")
         assert cfg["fiber"]["length"] == 10.0
