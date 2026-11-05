@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from pyofdr import __version__
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config import compute_derived
@@ -64,15 +65,10 @@ def run_campaign(cfg: dict, keep_acquisitions: bool = True) -> list[Acquisition]
         ADC(cfg),
     ]
 
-    writer = None
     acquisitions = []
     n_samples = 0
 
-    try:
-        if output_path:
-            writer = HDF5Writer(output_path)
-            writer.__enter__()
-
+    with (HDF5Writer(output_path) if output_path else nullcontext()) as writer:
         for i in range(n_sweeps):
             acq = Acquisition(sweep_index=i)
             for step in steps:
@@ -91,10 +87,6 @@ def run_campaign(cfg: dict, keep_acquisitions: bool = True) -> list[Acquisition]
                 # The shared fiber stays cached. This sweep's arrays can go now.
                 del acq
             logger.info("  sweep %d/%d done", i + 1, n_sweeps)
-
-    finally:
-        if writer is not None:
-            writer.__exit__(None, None, None)
 
     if output_path:
         logger.info("Output written to %s", output_path)
