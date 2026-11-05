@@ -181,7 +181,7 @@ class TestStrainTemperatureCrossSensitivity:
         z = bare.z
         dz = bare.dz
         in_seg = ((z >= z0) & (z <= z1)).astype(float)
-        cum = np.cumsum(in_seg) * dz
+        cum = np.r_[0., np.cumsum(in_seg[:-1])] * dz
         k0 = 2 * np.pi / WL
         phi_th = 2 * k0 * N_CORE * ((1 - P_E) * eps + (ALPHA_L + XI) * dT) * cum
 

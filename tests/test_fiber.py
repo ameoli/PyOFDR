@@ -592,7 +592,7 @@ class TestIndexPerturbation:
         z, dz = b.z, b.dz
         delta_n_arr = np.where((z >= 0.3) & (z < 0.7), dn, 0.0)
         k0 = 2.0 * np.pi / CFG["source"]["center_wavelength"]
-        phi_exp = 2.0 * k0 * np.cumsum(delta_n_arr) * dz
+        phi_exp = 2.0 * k0 * np.r_[0., np.cumsum(delta_n_arr[:-1])] * dz
         np.testing.assert_allclose(phi_meas, phi_exp, atol=1e-9)
 
     def test_plateau_after_segment(self):

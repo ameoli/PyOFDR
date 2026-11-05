@@ -248,7 +248,10 @@ A scatterer at z picks up an extra round-trip phase from the integrated strain (
 
     d_phi(z) = 2 k0 n (1 - p_e) integral_0^z eps(z') dz'
 with `k0 = 2 pi / lambda` and `p_e ~ 0.22` the photoelastic coefficient at 1550 nm. The `(1 - p_e)` factor folds in the index change from the
-strain itself, so the geometric stretch isn't double counted. Code multiplies the profile by `exp(j phase)` with a left-Riemann cumsum.
+strain itself, so the geometric stretch isn't double counted. The profile is
+multiplied by `exp(j phase)`. For strain, temperature and index changes, the
+added phase at the fiber input is zero. Each step from `z[k]` to `z[k+1]`
+accumulates the phase from the field sampled at `z[k]` over one cell of length `dz`.
 
 Ref: Froggatt & Moore, Appl. Opt. 37, 1735 (1998); Bertholds &
 Dandliker, J. Lightwave Technol. 6, 17 (1988).

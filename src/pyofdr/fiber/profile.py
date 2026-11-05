@@ -13,6 +13,7 @@ from pyofdr.fiber.attenuation import (
 from pyofdr.fiber.bends import bend_loss_total_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
+from pyofdr.fiber.phase import phase_at_bins
 from pyofdr.fiber.reflectors import apply_connector_losses, inject_reflectors, reflector_bin
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
@@ -149,7 +150,7 @@ class FiberGenerator(PipelineStep):
         phi_n = None
         if delta_n is not None:
             k0 = 2.0 * math.pi / self.center_wl
-            phi_n = 2.0 * k0 * xp.cumsum(delta_n) * dz
+            phi_n = phase_at_bins(delta_n, dz, 2.0 * k0, xp)
             profile = profile * xp.exp(1j * phi_n)
 
         # MCF core-to-core crosstalk. Applied after all per-core phase

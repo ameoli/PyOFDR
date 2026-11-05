@@ -136,6 +136,36 @@ def test_generated_ghost_uses_segment_and_bend_loss(kind, start, end, passes):
     np.testing.assert_allclose(abs(acq.ghost_profile[0, 2*b-a]), expected, rtol=1e-12)
 
 
+@pytest.mark.parametrize("kind", ["strain", "temperature", "index"])
+def test_uniform_perturbation_phase_from_input(kind):
+    length = .002
+    refs = [{"z": 0., "R": .25}, {"z": .0006, "R": .09}]
+    cfg = fiber_config(refs, length=length, n_cores=2)
+    cfg["source"] = {**cfg["source"], "sweep_range": 4e-9}
+    bare = FiberGenerator(cfg).process(Acquisition())
+    segment = {"start": 0., "end": length}
+    n = cfg["fiber"]["n_core"]
+    if kind == "index":
+        cfg["fiber"]["index_segments"] = [{**segment, "delta_n": 1e-4}]
+        optical_change = 1e-4
+    elif kind == "strain":
+        cfg["strain"] = {"segments": [{**segment, "epsilon": 100e-6}]}
+        optical_change = n * (1 - .22) * 100e-6
+    else:
+        cfg["temperature"] = {"segments": [{**segment, "delta_T": 10.}]}
+        optical_change = n * (5.5e-7 + 6.5e-6) * 10.
+    acq = FiberGenerator(cfg).process(Acquisition())
+    acq = StrainPerturbation(cfg).process(acq)
+    acq = TemperaturePerturbation(cfg).process(acq)
+
+    phase = 4 * np.pi / cfg["source"]["center_wavelength"] * optical_change * bare.z
+    np.testing.assert_array_equal(acq.fiber_profile[:, 0], bare.fiber_profile[:, 0])
+    np.testing.assert_allclose(acq.fiber_profile, bare.fiber_profile * np.exp(1j * phase),
+                               rtol=1e-12, atol=0)
+    np.testing.assert_allclose(acq.ghost_profile, bare.ghost_profile * np.exp(1j * phase),
+                               rtol=1e-12, atol=0)
+
+
 def test_index_phase_and_crosstalk_also_apply_to_ghosts():
     refs = [{"z": 0.0, "R": 0.04}, {"z": 0.2, "R": 0.09}]
     cfg = fiber_config(refs, n_cores=2)
@@ -145,7 +175,7 @@ def test_index_phase_and_crosstalk_also_apply_to_ghosts():
     cfg["fiber"] = {**cfg["fiber"], "index_segments": [index], "crosstalk": xt}
     actual = FiberGenerator(cfg).process(Acquisition())
     dn = np.where((bare.z >= 0.1) & (bare.z < 0.5), 1e-7, 0)
-    phase = 4 * np.pi / cfg["source"]["center_wavelength"] * np.cumsum(dn) * bare.dz
+    phase = 4 * np.pi / cfg["source"]["center_wavelength"] * np.r_[0., np.cumsum(dn[:-1])] * bare.dz
     rng = np.random.default_rng(derive_seed(42, component="crosstalk"))
     expected = apply_crosstalk(bare.ghost_profile * np.exp(1j * phase), bare.z,
                                -20.0, "linear", rng)
