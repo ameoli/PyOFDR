@@ -596,6 +596,7 @@ The effective number of bits lumps jitter + INL + analog noise into one number, 
 
 ### Aperture jitter
 A timing error `dt_err ~ N(0, sigma_j)` becomes a voltage error to first order, `dV = (dV/dt) dt_err`, with the slope from finite differences.
+For a single sample the slope is unknown, so the ADC skips the jitter correction.
 
 ### DNL / INL
 Nonlinearities act on the voltage thresholds before a code is assigned. With
