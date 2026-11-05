@@ -516,9 +516,10 @@ limit. Samples without clipping retain the existing small-signal calculation
 to avoid cancellation when subtracting large DC terms. Static-baseline removal
 is not a model of an AC-coupling filter's frequency response.
 
-Shot, thermal and dark noise are added afterwards. With saturation enabled,
-the shot-noise variance is `2*e*I_collected*B` per diode, using its nonnegative
-limited current before baseline removal/subtraction. Independent diode noise
+Shot, thermal and dark noise are added afterwards. The shot-noise variance
+is `2*e*I_collected*B` per diode. The model takes the nonnegative part of
+the total current after the polynomial and any clipping, before removing
+the baseline or subtracting the two diode signals. Independent diode noise
 contributions add in variance, even if their mean difference is zero. Thermal
 and dark noise retain their existing models and are not clipped by this limit.
 
@@ -534,8 +535,9 @@ configuration bounds and end-to-end output.
 Independent gaussians:
 
 - reference current per photodiode: `I_dc_pd = R eta P_laser / 2`, including the 50/50 recombiner,
-- without saturation, single-ended shot: variance `2 e max(I_dc_pd + I_beat, 0) B`; the reference dominates for weak returns,
-- without saturation, balanced shot: two independent contributions, each with variance `2 e I_dc_pd B`,
+- single-ended shot: use the diode response at `I_dc_pd + I_beat`,
+- balanced shot: add the independent variances from the diode responses at
+  `I_dc_pd + I_beat/2` and `I_dc_pd - I_beat/2`,
 - thermal / NEP: `sigma = R NEP sqrt(B)`, NEP in W/sqrt(Hz),
 - dark current: variance `2 e I_dark B` per photodiode, doubled in balanced mode.
 

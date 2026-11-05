@@ -459,8 +459,9 @@ noise terms (shot/thermal/dark), and optional saturation + nonlinearity.
 linear term is implicit identity. Empty list = no polynomial distortion.
 `saturation_current` clips each diode's polynomial response to `[0, I_sat]`,
 including reference-arm DC, before balanced subtraction or single-ended
-static-baseline removal. Shot noise uses the limited per-diode currents;
-noise is added after clipping. The limit is not a TIA output-voltage limit.
+static-baseline removal. Shot noise uses the nonnegative current of each
+diode after its polynomial response and any clipping. The limit applies to
+the photodiode current, upstream of the TIA.
 The reference DC uses the configured mean laser power, as detailed in the
 [theory guide](theory.md#saturation).
 
