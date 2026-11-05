@@ -152,7 +152,7 @@ See [the theory guide](theory.md#macrobending) for equations, references and lim
 
 | field | type | default | description |
 | --- | --- | --- | --- |
-| `z` | length | -- | position along the fiber |
+| `z` | length | -- | position from 0 to `fiber.length`, inclusive |
 | `R` | float in [0, 1] | -- | power reflectivity |
 | `loss_dB` | float >= 0 | 0.0 | extra one-way loss on the input side of the reflecting interface |
 

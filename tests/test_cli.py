@@ -64,6 +64,14 @@ def test_nan_strain_is_rejected_before_simulation(tmp_path, capsys, command):
     assert not output.exists()
 
 
+@pytest.mark.parametrize("command", ["validate", "run"])
+def test_negative_reflector_position_is_rejected(tmp_path, capsys, command):
+    path = tmp_path / "reflector.yaml"
+    path.write_text("fiber: {length: 0.15, reflectors: [{z: '-5 cm', R: 0.25}]}\n")
+    assert main([command, str(path)]) == 1
+    assert "fiber.reflectors.0.z" in capsys.readouterr().err
+
+
 def _write_run_cfg(tmp_path, output_path=None):
     """small CFG dumped to YAML, optionally with output.path set."""
     cfg = {**CFG}
