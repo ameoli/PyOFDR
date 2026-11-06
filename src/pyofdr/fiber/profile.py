@@ -75,8 +75,7 @@ class FiberGenerator(PipelineStep):
 
         # Rayleigh backscatter coefficient (power per meter). When
         # segments are given we build a per-z R(z) array; the overall
-        # sigma then also varies along the fiber. Backward compat:
-        # no segments -> scalar, identical to the old path.
+        # sigma then also varies along the fiber.
         if self.rayleigh_segments:
             R_z = xp.full(n_z, dB_to_linear(self.rayleigh_dB))
             for seg in self.rayleigh_segments:
@@ -98,6 +97,10 @@ class FiberGenerator(PipelineStep):
             im = rng_c.standard_normal(n_z)
             parts.append((sigma / math.sqrt(2.0)) * (re + 1j * im))
         profile = xp.stack(parts)
+
+        # Rayleigh power is proportional to the fiber length in the cell.
+        last_length = min(dz, max(0.0, self.length - (n_z - 1) * dz))
+        profile[:, -1] *= math.sqrt(last_length / dz)
 
         # discrete reflectors (connectors, splices, etc)
         reflection = None
