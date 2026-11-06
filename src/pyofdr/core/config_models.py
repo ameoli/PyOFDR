@@ -48,7 +48,7 @@ class SimulationConfig(_Strict):
 
 
 class ReflectorEntry(_Strict):
-    z: Length
+    z: Length = Field(..., ge=0)
     R: float = Field(..., ge=0, le=1)
     loss_dB: float = Field(0.0, ge=0)   # extra one-way loss on the input side [dB]
 
