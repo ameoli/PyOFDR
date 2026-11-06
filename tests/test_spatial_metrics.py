@@ -41,6 +41,28 @@ class TestMeasureResolution:
         r = measure_resolution(H, z, 0.01)
         assert abs(r["peak_z"] - 0.01) < 0.001
 
+    @pytest.mark.parametrize("n_bins", [400, 20000])
+    @pytest.mark.parametrize("neighbor_z", [0.07, 0.13])
+    def test_stronger_neighbor_does_not_replace_requested_peak(self, n_bins, neighbor_z):
+        z = np.arange(n_bins) * 0.001
+        peak = np.exp(-0.5 * ((z - 0.1) / 0.001) ** 2)
+        neighbor = 2 * np.exp(-0.5 * ((z - neighbor_z) / 0.003) ** 2)
+        expected = measure_resolution(peak, z, 0.1)
+        result = measure_resolution(peak + neighbor, z, 0.1)
+        assert result["peak_z"] == pytest.approx(0.1)
+        assert result["peak_dB"] == pytest.approx(0.0, abs=1e-10)
+        assert result["resolution"] == pytest.approx(expected["resolution"])
+
+    @pytest.mark.parametrize("offset", [-5, 5])
+    def test_peak_search_includes_five_bins_on_each_side(self, offset):
+        z = np.arange(100) * 0.001
+        H = np.zeros(100, dtype=complex)
+        H[50 + offset] = 1.0
+        H[50 + 2 * offset] = 2.0
+        result = measure_resolution(H, z, z[50])
+        assert result["peak_z"] == z[50 + offset]
+        assert result["peak_dB"] == pytest.approx(0.0)
+
     def test_gaussian_width_matches_analytic(self):
         # -6 dB full width of a gaussian: 2*w*sqrt(-2*ln(10^-0.3))
         dz = 20e-6
