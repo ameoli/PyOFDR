@@ -47,7 +47,11 @@ def frequency_noise(
 
     The contributions are statistically independent because
     powerlaw_psd_gaussian draws fresh samples each time from the same rng.
+    Nonzero coloured noise requires at least two samples for the FFT.
     """
+    if n_samples < 2 and (sigma_flicker > 0 or sigma_rw > 0):
+        raise ValueError("colored laser noise requires at least two samples")
+
     nu_white = xp.zeros(n_samples)
     if linewidth > 0:
         # integrates to d_phi ~ N(0, sqrt(2*pi*lw*dt)) per sample

@@ -43,7 +43,7 @@ Frequency-noise PSD is a power-law sum,
 generated in `source/phase_noise.py` and added to `nu_inst` itself, so it propagates to the field phase, the aux MZI clock and the main-MZI time-warp (not just to `E_source`, whose phase the beat model never sees directly -- #82):
 
 - white FM, a Lorentzian linewidth `Delta_nu`: per-step `d_phi ~ N(0, sqrt(2 pi Delta_nu dt))`, cumulative sum is a Wiener process
-- flicker FM (1/f) and random-walk FM (1/f^2): FFT-shaped Gaussian noise (Timmer & Koenig), integrated into phase. Each parametrized by its  RMS in Hz over the sampled band.
+- flicker FM (1/f) and random-walk FM (1/f^2): FFT-shaped Gaussian noise (Timmer & Koenig), integrated into phase. Each parametrized by its RMS in Hz over the sampled band. Enabling either requires at least two samples per sweep; `validate` and `run` reject shorter acquisitions. White FM alone still supports a single sample.
 
 The 1/f shaping is from `utils/colorednoise.py`.
 
