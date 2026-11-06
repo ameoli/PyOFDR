@@ -719,6 +719,40 @@ class TestRayleighStatistics:
     (sigma^2 = R_lin * dz) and the phase must be uniform on [-pi, pi).
     See #65."""
 
+    @pytest.mark.parametrize("length_bins", [0.01, 0.25, 3.25])
+    @pytest.mark.parametrize("segmented", [False, True])
+    def test_partial_cell_power_scales_with_length(self, length_bins, segmented):
+        gen = FiberGenerator(CFG)
+        dz = _C / (2 * gen.n_core * gen.sweep_range_hz)
+        n_bins = int(np.ceil(length_bins))
+        profiles = []
+        for length in (n_bins * dz, length_bins * dz):
+            fiber = {**CFG["fiber"], "length": length, "n_cores": 3}
+            if segmented:
+                fiber["rayleigh_segments"] = [{
+                    "start": 0.0, "end": length, "rayleigh_coefficient_dB": -60.0,
+                }]
+            acq = FiberGenerator({**CFG, "fiber": fiber}).process(Acquisition())
+            assert acq.fiber_profile.shape == (3, n_bins)
+            profiles.append(acq.fiber_profile)
+        full, partial = profiles
+        np.testing.assert_array_equal(partial[:, :-1], full[:, :-1])
+        fraction = length_bins - (n_bins - 1)
+        np.testing.assert_allclose(partial[:, -1] / full[:, -1], np.sqrt(fraction))
+        np.testing.assert_allclose(
+            np.abs(partial[:, -1]) ** 2 / np.abs(full[:, -1]) ** 2, fraction)
+
+    def test_partial_cell_does_not_reduce_discrete_reflector(self):
+        gen = FiberGenerator(CFG)
+        dz = _C / (2 * gen.n_core * gen.sweep_range_hz)
+        fiber = {**CFG["fiber"], "length": 3.25 * dz, "n_cores": 3}
+        bare = FiberGenerator({**CFG, "fiber": fiber}).process(Acquisition())
+        fiber["reflectors"] = [{"z": fiber["length"], "R": 0.04}]
+        reflected = FiberGenerator({**CFG, "fiber": fiber}).process(Acquisition())
+        added = reflected.fiber_profile - bare.fiber_profile
+        np.testing.assert_allclose(np.abs(added[:, -1]) ** 2, 0.04)
+        np.testing.assert_array_equal(added[:, :-1], 0.0)
+
     @staticmethod
     def _profile():
         # 2 m -> ~100k samples, plenty for the fit / KS test

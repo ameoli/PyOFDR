@@ -73,7 +73,7 @@ Ref: Glombitza & Brinkmeyer, J. Lightwave Technol. 11, 1377 (1993)
 ### Rayleigh backscatter
 Every spatial bin `dz` holds a circular-gaussian complex phasor:
     r(z) = sigma/sqrt(2) * (re + j im),   re, im ~ N(0,1)
-with `sigma = sqrt(R_lin * dz)` and `R_lin = 10^(R_dB/10)` the backscattered power per metre. Magnitude squared is exponential — the usual OFDR speckle. Per-segment `R(z)` is allowed (so sigma varies along z), and each core gets its own independent draw.
+with `sigma = sqrt(R_lin * cell_length)` and `R_lin = 10^(R_dB/10)` the backscattered power per metre. Full cells have `cell_length = dz`; the last cell uses only the remaining fiber length. Magnitude squared is exponential — the usual OFDR speckle. Per-segment `R(z)` is allowed (so sigma varies along z), and each core gets its own independent draw.
 
 Ref: Gifford et al., distributed temperature sensing using Rayleigh backscatter, ECOC (2005).
 
