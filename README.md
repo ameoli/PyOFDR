@@ -41,7 +41,7 @@ Theory and references are in `docs/theory.md`
 git clone https://github.com/ameoli/PyOFDR.git
 cd PyOFDR
 pip install -e .              # runtime
-pip install -e .[dev]         # + pytest, matplotlib, jupyter
+pip install -e ".[dev]"       # + pytest
 ```
 
 ## Quick start
@@ -70,8 +70,20 @@ pytest tests/ -v
 
 
 ## Examples
-`examples/` holds runnable Jupyter notebooks, one per topic.
-Open them with `jupyter lab examples/`.
+From the repository root, install the tutorials and start JupyterLab in the same environment:
+
+```bash
+python -m pip install -e ".[tutorials]"
+python -m jupyterlab examples/
+```
+
+Open a notebook and run all cells from the beginning. The examples load the basic YAML configuration relative to the notebook directory.
+
+- [00: Fiber signature](examples/00_fiber_signature.ipynb) compares Rayleigh statistics with theory.
+- [01: Reflectogram basics](examples/01_reflectogram_basics.ipynb) maps ADC samples to distance and compares repeated sweeps.
+- [02: Reflector loss and linewidth](examples/02_reflector_loss_and_linewidth.ipynb) measures round-trip attenuation, coherence loss and peak width.
+- [03: Strain recovery](examples/03_strain_recovery.ipynb) recovers an imposed strain from two Rayleigh traces.
+- [04: Noise budget](examples/04_noise_budget.ipynb) compares predicted and measured shot, thermal and quantization noise.
 
 ## Status
 TBD

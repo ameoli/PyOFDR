@@ -38,6 +38,7 @@ pyofdr = "pyofdr.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+tutorials = ["matplotlib", "jupyterlab", "ipykernel"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
