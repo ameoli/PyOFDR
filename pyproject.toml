@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,8 @@ name = "pyofdr"
 version = "0.9.0a0"
 description = "OFDR simulator for distributed fiber sensing"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE", "LICENSES/colorednoise-MIT.txt"]
 requires-python = ">=3.10"
 authors = [
     {name = "A. Meoli", email = "alessandro.meoli@unicampania.it"},
@@ -16,7 +17,6 @@ keywords = ["ofdr", "fiber sensing", "rayleigh", "interferometry", "simulation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Physics",
 ]
