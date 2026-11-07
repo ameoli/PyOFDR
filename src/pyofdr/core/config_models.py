@@ -487,6 +487,19 @@ class RootConfig(_Strict):
         return self
 
     @model_validator(mode="after")
+    def _check_colored_noise_samples(self):
+        src = self.source
+        if src.flicker_noise_Hz > 0 or src.random_walk_noise_Hz > 0:
+            n_t = sweep_sample_count(src.sweep_duration, self.adc.sample_rate)
+            if n_t < 2:
+                raise ValueError(
+                    "source.flicker_noise_Hz and source.random_walk_noise_Hz "
+                    "require at least two samples when enabled; increase "
+                    "source.sweep_duration or adc.sample_rate"
+                )
+        return self
+
+    @model_validator(mode="after")
     def _check_aux_mzi_delay(self):
         # same bounds AuxMZI.process enforces at runtime, but caught here
         # so `pyofdr validate` sees them (#92)

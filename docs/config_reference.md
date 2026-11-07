@@ -250,8 +250,8 @@ Swept laser + noise + sweep imperfections.
 | `sweep_duration` | time > 0 | 0.01 | sweep period (lab time) |
 | `power` | watt > 0 | 10e-3 | average optical power |
 | `linewidth` | Hz >= 0 | 0.0 | FWHM Lorentzian (white FM term) |
-| `flicker_noise_Hz` | float >= 0 | 0.0 | RMS 1/f frequency excursion |
-| `random_walk_noise_Hz` | float >= 0 | 0.0 | RMS 1/f^2 frequency excursion |
+| `flicker_noise_Hz` | float >= 0 | 0.0 | RMS 1/f frequency excursion; requires at least two samples when > 0 |
+| `random_walk_noise_Hz` | float >= 0 | 0.0 | RMS 1/f^2 frequency excursion; requires at least two samples when > 0 |
 | `rin_dB_per_Hz` | float \| None | None | RIN PSD; None disables |
 | `power_envelope_edge_dB` | float >= 0 | 0.0 | parabolic edge droop |
 | `sweep_nonlinearity_a2` | Hz/s^2 | 0.0 | quadratic chirp deviation |

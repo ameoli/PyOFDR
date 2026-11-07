@@ -72,6 +72,34 @@ def test_negative_reflector_position_is_rejected(tmp_path, capsys, command):
     assert "fiber.reflectors.0.z" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("command", ["validate", "run"])
+@pytest.mark.parametrize("noise", ["flicker_noise_Hz", "random_walk_noise_Hz"])
+@pytest.mark.parametrize("count", [0.5, 1.0, 1.5, 2.0])
+def test_colored_noise_requires_two_samples(tmp_path, capsys, command, noise, count):
+    cfg = {
+        "fiber": {"length": 0.01},
+        "source": {"sweep_range": 1e-15, "sweep_duration": count / 1e8, noise: 1.0},
+        "adc": {"sample_rate": 1e8},
+    }
+    path = tmp_path / "noise.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    output = tmp_path / "noise.h5"
+    args = [command, str(path)]
+    if command == "run":
+        args.extend(["-o", str(output)])
+    result = main(args)
+    if count <= 1:
+        assert result == 1
+        error = capsys.readouterr().err
+        assert "invalid config" in error
+        assert "at least two samples" in error
+        assert not output.exists()
+    else:
+        assert result == 0
+        if command == "run":
+            assert output.exists()
+
+
 def _write_run_cfg(tmp_path, output_path=None):
     """small CFG dumped to YAML, optionally with output.path set."""
     cfg = {**CFG}

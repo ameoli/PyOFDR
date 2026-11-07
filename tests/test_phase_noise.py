@@ -177,6 +177,19 @@ class TestNoiseReachesTheBeat:
 
 class TestFrequencyNoisePrimitive:
 
+    @pytest.mark.parametrize("levels", [(1.0, 0.0), (0.0, 1.0), (1.0, 1.0)])
+    def test_single_sample_colored_noise_is_rejected(self, levels):
+        with pytest.raises(ValueError, match="at least two samples"):
+            frequency_noise(1, 1e-8, 0.0, *levels, rng=np.random.default_rng(0))
+
+    def test_single_sample_white_noise_still_works(self):
+        dt, linewidth = 1e-8, 1e3
+        white, colored = frequency_noise(
+            1, dt, linewidth, 0.0, 0.0, rng=np.random.default_rng(0))
+        expected = np.sqrt(linewidth / (2 * np.pi * dt)) * np.random.default_rng(0).standard_normal(1)
+        np.testing.assert_array_equal(white, expected)
+        np.testing.assert_array_equal(colored, [0.0])
+
     def test_white_integrates_to_wiener(self):
         n, dt, lw = 4096, 1e-9, 1e5
         nu_w, _ = frequency_noise(n, dt, lw, 0.0, 0.0,
