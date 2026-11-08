@@ -1,86 +1,127 @@
 # Theory
-This document covers the physics behind each pipeline stage.
-For the package layout see `architecture.md`. YAML config in `config_reference.md`.
+
+Physics behind each pipeline stage. Package layout in `architecture.md`, YAML
+config in `config_reference.md`.
 
 ## Signal chain
+
 ```
 SweptLaser -> FiberGenerator -> StrainPerturbation -> TemperaturePerturbation
            -> MachZehnder -> Detector -> AntiAliasFilter -> ADC
 ```
-For a perfectly linear sweep the beat frequency of a scatterer at distance
-`z` is `f_beat(z) = 2 n gamma z / c`, linear in z. Here `n` is the group
-index, `gamma = delta_nu / T_sweep` the chirp rate, factor 2 for the round
-trip. The whole time-domain beat is then the inverse transform of the
-attenuation weighted fiber profile:
+
+If the sweep is linear, a scatterer at distance `z` beats at
+`f_beat(z) = 2 n gamma z / c`, linear in z. `n` is the group index,
+`gamma = delta_nu / T_sweep`, factor 2 from the round trip. The time-domain
+beat is then the inverse transform of the attenuation-weighted profile plus
+ghosts:
+
     s(t) = IFFT[ profile(z) * attenuation(z) + ghosts(z) ] * n_samples
 
-(`optics/mach_zehnder.py`). O(N log N) instead of the O(N^2) of a
-per-scatterer sum, and exact while the chirp stays linear. Mode hops and
-sweep nonlinearity break that assumption so we need the
-auxiliary MZI k-clock or the MZI time-warp (see optics section).
+(see `optics/mach_zehnder.py`). O(N log N) instead of O(N^2) of a
+per-scatterer sum, exact as long as the chirp stays linear. Mode hops and
+sweep nonlinearity break this, hence the aux MZI k-clock or the time-warp
+(optics section).
 
-Two consequences for the sampling grid:
-- spatial resolution `dz = c / (2 n delta_nu)` (`core/config.py`, `compute_derived`),
-- highest beat `f_beat_max = 2 n gamma L / c`. A config with `f_beat_max >= fs/2` is rejected at validation (`core/config_models.py`, `_check_nyquist`).
+Two consequences for the grid: `dz = c / (2 n delta_nu)` (in
+`core/config.py`, `compute_derived`), and `f_beat_max = 2 n gamma L / c`,
+with `f_beat_max >= fs/2` rejected at validation (`core/config_models.py`,
+`_check_nyquist`).
 
-Ref: Eickhoff & Ulrich, Appl. Phys. Lett. 39, 693 (1981) (first OFDR);
+First OFDR: Eickhoff & Ulrich, Appl. Phys. Lett. 39, 693 (1981); see also
 Soller et al., Opt. Express 13, 666 (2005).
 
 ## Source
-`source/swept_laser.py` builds the optical field one sweep at a time.
+
+`source/swept_laser.py`, one sweep at a time.
 
 ### Chirp
+
 Instantaneous frequency is a linear ramp plus optional nonlinearity:
+
     nu(t) = nu_start + gamma t + a2 t^2 + a3 t^3 + A_r sin(2 pi t / T_r)
-with `gamma = delta_nu / T_sweep` and the wavelength-to-frequency conversion `delta_nu = (c / lambda^2) delta_lambda` (`utils/units.py`,
-`wavelength_range_to_freq_range`). Zero coefficients give the ideal chirp. Phase is the rectangle-rule integral of nu, and the field carries it on the power envelope:
+
+with `gamma = delta_nu / T_sweep` and `delta_nu = (c / lambda^2) delta_lambda`
+(`utils/units.py`, `wavelength_range_to_freq_range`). Zero coefficients give
+the ideal chirp. Phase is the rectangle-rule integral of nu, and the field
+carries it on the power envelope:
+
     phi(t) = 2 pi cumsum(nu) dt
     E(t)   = sqrt(P(t)) exp(j phi(t))
 
 ### Phase noise
-Frequency-noise PSD is a power-law sum,
+
+Three terms:
+
     S_nu(f) = h_0 + h_-1 / f + h_-2 / f^2
-generated in `source/phase_noise.py` and added to `nu_inst` itself, so it propagates to the field phase, the aux MZI clock and the main-MZI time-warp (not just to `E_source`, whose phase the beat model never sees directly -- #82):
 
-- white FM, a Lorentzian linewidth `Delta_nu`: per-step `d_phi ~ N(0, sqrt(2 pi Delta_nu dt))`, cumulative sum is a Wiener process
-- flicker FM (1/f) and random-walk FM (1/f^2): FFT-shaped Gaussian noise (Timmer & Koenig), integrated into phase. Each parametrized by its RMS in Hz over the sampled band. Enabling either requires at least two samples per sweep; `validate` and `run` reject shorter acquisitions. White FM alone still supports a single sample.
+White FM gives a Gaussian phase step, zero mean, std `sqrt(2 pi Delta_nu dt)`
+with `Delta_nu` the Lorentzian linewidth. Flicker (1/f) and random-walk (1/f²)
+take RMS frequency deviations in Hz over the sampled band; both use the
+FFT-shaped noise in `utils/colorednoise.py` and need at least two samples per
+sweep. White FM is fine with one.
 
-The 1/f shaping is from `utils/colorednoise.py`.
+All three go into `nu_inst`, which sets the optical phase and drives the aux
+MZI clock. In the main MZI the slow part changes the beat through the
+time-warp, while the linewidth reduces the beat amplitude with distance via
+the coherence roll-off.
 
-Ref: Timmer & Koenig, Astron. Astrophys. 300, 707 (1995); Di Domenico et
-al., Appl. Opt. 49, 4801 (2010).
+Timmer & Koenig, Astron. Astrophys. 300, 707 (1995); Di Domenico et al.,
+Appl. Opt. 49, 4801 (2010).
 
 ### RIN
-Relative intensity noise = white multiplicative noise on the power:
+
+White multiplicative noise on the power:
+
     P(t) = P0 (1 + m(t)),   m ~ N(0, sqrt(RIN_lin * BW))
+
 with `RIN_lin = 10^(RIN_dB_per_Hz / 10)` and `BW = fs/2`.
 
 ### Power envelope
-Tunable lasers droop toward the sweep edges. Parabolic model:
+
+Tunable lasers droop toward the sweep edges. Parabola:
+
     P(u) = P0 (1 - 4 e u^2),   u = t/T_sweep - 0.5,   e = 1 - 10^(-edge_dB/10)
-`edge_dB = 0` is flat. The envelope and the RIN both reach the detector because the beat carries `P(t)` pointwise, not an average (see optics section).
+
+`edge_dB = 0` flat. Both the envelope and the RIN reach the detector because
+the beat carries `P(t)` pointwise, not an average (optics section).
 
 ### Sweep nonlinearity
-The `a2`, `a3`, `A_r`, `T_r` terms above are the deviation from the linear ramp.
-The MZI time-warp models their effect on the beat; aux-MZI k-clock resampling
-can compensate it in post-processing.
 
-Ref: Glombitza & Brinkmeyer, J. Lightwave Technol. 11, 1377 (1993)
+The `a2`, `a3`, `A_r`, `T_r` terms are the deviation from the linear ramp.
+The time-warp models their effect on the beat; aux-MZI k-clock resampling can
+compensate in post-processing.
+
+Glombitza & Brinkmeyer, J. Lightwave Technol. 11, 1377 (1993).
 
 ## Fiber
-`fiber/profile.py` draws the Rayleigh profile, the rest of the fiber physics hangs off it as submodules.
+
+`fiber/profile.py` draws the Rayleigh profile; the rest hangs off it as
+submodules.
 
 ### Rayleigh backscatter
-Every spatial bin `dz` holds a circular-gaussian complex phasor:
-    r(z) = sigma/sqrt(2) * (re + j im),   re, im ~ N(0,1)
-with `sigma = sqrt(R_lin * cell_length)` and `R_lin = 10^(R_dB/10)` the backscattered power per metre. Full cells have `cell_length = dz`; the last cell uses only the remaining fiber length. Magnitude squared is exponential — the usual OFDR speckle. Per-segment `R(z)` is allowed (so sigma varies along z), and each core gets its own independent draw.
 
-Ref: Gifford et al., distributed temperature sensing using Rayleigh backscatter, ECOC (2005).
+Each `dz` bin holds a circular-gaussian complex phasor:
+
+    r(z) = sigma/sqrt(2) * (re + j im),   re, im ~ N(0,1)
+
+with `sigma = sqrt(R_lin * cell_length)`, `R_lin = 10^(R_dB/10)` the
+backscattered power per metre. Full cells use `cell_length = dz`, the last
+cell only the remaining length. Magnitude squared is exponential, the usual
+OFDR speckle. Per-segment `R(z)` is allowed, so sigma varies along z; each
+core gets its own draw.
 
 ### Attenuation
-Beer-Lambert. dB/km to Np/m is
+
+Beer-Lambert. dB/km to Np/m:
+
     alpha_Np_m = alpha_dB_km * ln(10) / 10000
-and the round-trip amplitude envelope is `env(z) = exp(-alpha_Np_m z)` (`fiber/attenuation.py`). Worth stating the convention: the envelope multiplies a field but represents round-trip power loss, because light walks the fiber twice (so field amplitude round-trip equals one-way power in dB). With heterogeneous segments we build an `alpha(z)` vector and integrate it cumulatively.
+
+Round-trip amplitude envelope `env(z) = exp(-alpha_Np_m z)`
+(`fiber/attenuation.py`). Worth stating the convention: the envelope
+multiplies a field but represents round-trip power loss, because light walks
+the fiber twice. With heterogeneous segments we build an `alpha(z)` vector
+and integrate cumulatively.
 
 ### Macrobending
 `fiber/bends.py` provides three alternatives. The default `exponential` model
