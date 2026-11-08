@@ -124,165 +124,97 @@ the fiber twice. With heterogeneous segments we build an `alpha(z)` vector
 and integrate cumulatively.
 
 ### Macrobending
-`fiber/bends.py` provides three alternatives. The default `exponential` model
-uses `loss_per_turn = A exp(-R/R_c)` in dB/turn, with empirical starting values
-`A=100 dB/turn` and `R_c=5 mm`. The `tabulated` model interpolates log(loss)
-linearly against radius; it clamps to the nearest endpoint outside the table
-and issues a warning. Neither model infers wavelength dependence.
 
-The `marcuse` model uses a circular step-index core of radius `a` and infinite
-cladding, with phase indices `n1 > n2`. Its straight-fiber LP01 mode is found
-from
+Three models in `fiber/bends.py`. Default `exponential` uses
+`loss_per_turn = A exp(-R/R_c)` in dB/turn, empirical `A=100 dB/turn`,
+`R_c=5 mm`. `tabulated` interpolates log(loss) linearly against radius,
+clamps outside the table with a warning. Neither infers wavelength
+dependence.
 
-    k = 2*pi/lambda
-    V = k*a*sqrt(n1^2 - n2^2)
-    U^2 + W^2 = V^2
-    U*J1(U)/J0(U) = W*K1(W)/K0(W)
-    kappa = U/a, gamma = W/a
-    beta = sqrt((n2*k)^2 + gamma^2)
+The `marcuse` model uses the LP01 mode of a weakly guiding step-index fibre
+([Marcuse, 1976](https://doi.org/10.1364/JOSA.66.000216)).
+The code computes the power decay coefficient `q` in m⁻¹ from the bend-loss
+formula in [Martins et al. (2009), Eq. (4)](https://www.researchgate.net/publication/231179029_Modeling_of_Bend_Losses_in_Single-Mode_Optical_Fibers).
+It uses the effective radius `R_eff = radius_correction * R` in that formula.
+The default correction is 1.28 for silica. Set it to 1 for the uncorrected curve.
+The arc length `L` uses the physical radius `R`.
 
-The solver brackets the root in `log(W)` so small cladding decay constants
-remain resolved. `J` and `K` are the ordinary and modified Bessel functions.
-This scalar weak-guidance mode is not a full vector HE11 solution. The
-implementation accepts `0 < V < 2.4048255577` and
-`delta=(n1^2-n2^2)/(2*n1^2) <= 0.01`; the latter is a conservative numerical
-scope restriction, not an exact physical boundary for weak guidance.
-The phase indices must be supplied separately from the OFDR group index.
+    L = 2*pi*R*turns
+    P_out / P_in = exp(-q*L)
+    loss_dB = (10/ln(10))*q*L
 
-Writing `q = 2*alpha` for the **power** decay coefficient in inverse metres,
-Marcuse's LP01 expression is
+The mode solver brackets the root in `log(W)`. It requires `0 < V < 2.4048255577`
+and `delta <= 0.01`. Supply the core and cladding phase indices separately
+from the OFDR group index.
 
-    R_eff = radius_correction * R
-    q = sqrt(pi)*kappa^2 / (2*gamma^(3/2)*V^2*sqrt(R_eff)*K1(W)^2)
-        * exp(-2*gamma^3*R_eff/(3*beta^2))
-    P_out/P_in = exp(-q*L)
-    loss_dB = (10/ln(10))*q*L,  L = 2*pi*R*turns
-
-The usual silica stress correction is `R_eff/R = 1.28`; setting it to 1
-recovers the uncorrected model. It changes the radiation coefficient while
-the arc length still uses the physical radius. The implementation evaluates
-the expression in log form and lets negligible losses underflow to zero.
-It does not exponentiate a large positive optical depth to convert to dB.
-
-For all three models, the total one-way bend loss is spread uniformly over
-`[start, end)`. Its cumulative contribution at a scatterer position `z` is
-integrated over the physical interval, including fractional cells:
+For all three models the one-way bend loss is spread over `[start, end)`
+and integrated cumulatively:
 
     covered = max(0, min(z, end) - max(0, start))
     bend_loss_to_z = total_loss_dB * covered / (end - start)
 
-For a bend inside the fiber this gives zero at its start and the full loss
-at or beyond its end, even if the entire bend lies between two grid points.
-Overlapping bends add in dB. At the last sampled position, a bend that extends
-further towards the fiber end contributes only the portion already traversed.
-The same cumulative loss is used for direct returns and ghost paths. Direct
-returns see the round-trip field factor `10^(-loss_to_z/10)`; ghosts count
-the full or partial bent interval on every passage.
-
-`tests/test_bend_grid.py` checks shifted and sub-cell bends, different spatial
-grids, overlap with other attenuation, and partial ghost crossings, with
-`1e-12` relative tolerances on nonzero losses or field factors.
-
-The analytic calculation uses the source centre wavelength and fixed phase
-indices. During an OFDR sweep the resulting envelope is held constant; this
-does not model spectral bend filtering or material dispersion across a wide
-sweep. The approximation assumes weak guidance, gently curved fiber
-(`R_eff` much larger than `a`) and a nearly unchanged mode shape. Coating
-reflections, transition loss, whispering-gallery oscillations and bend-induced
-birefringence remain outside the model (#57). Predicting a particular
-commercial fiber still requires its optical parameters and measurements.
-
-References: [Marcuse, JOSA 66, 216-220 (1976)](https://doi.org/10.1364/JOSA.66.000216);
-[Martins et al., Conftele 2009, Eq. (4) and Table I](https://www.researchgate.net/publication/231179029_Modeling_of_Bend_Losses_in_Single-Mode_Optical_Fibers).
-The effective-radius treatment is also discussed by
-[Schermer and Cole, IEEE JQE 43, 899-909 (2007)](https://doi.org/10.1109/JQE.2007.903364).
-
-For the Martins waveguide (`a=4.1 um`, `n2=1.440`, `NA=0.117`), numerical
-reference values at `R=10 mm`, one turn and correction 1.28 are:
-
-| wavelength | W | one-way loss [dB] |
-| --- | --- | --- |
-| 1310 nm | 1.63441932659613 | 0.0592091599471278 |
-| 1550 nm | 1.22651814034357 | 3.35620476859821 |
-| 1625 nm | 1.12338156463537 | 8.21001752202825 |
-
-These values were computed independently with 70-digit arithmetic, bisecting
-`b=W^2/V^2` for 240 iterations with the cross-multiplied continuity equation.
-They are evaluations of the stated model using published waveguide parameters,
-not measured values or a reproduction of the paper's experimental curves.
-`tests/test_marcuse_bends.py` checks nine loss cases at relative tolerance
-`2e-10`, mode parameters at `2e-12`, continuity at the core boundary, physical
-arc length, unit scaling, invalid inputs, and integration with direct and ghost
-attenuation. No extra dependency is needed to run these tests.
+Zero at the start, full loss at or beyond the end, even if the whole bend
+sits between two grid points. Overlapping bends add in dB. Same cumulative
+loss for direct returns and ghosts; direct returns see the round-trip field
+factor `10^(-loss_to_z/10)`, ghosts count the interval on every passage.
+`tests/test_bend_grid.py` covers shifted, sub-cell, overlapping and partial
+ghost cases. For a real commercial fiber you still need its optical
+parameters.
 
 ### Discrete reflectors and connectors
-A point reflector adds `r = sqrt(R) exp(j phi)` at its nearest spatial bin
-(`fiber/reflectors.py`). Each core has its own seeded reflector phases, drawn
-once and reused across sweeps. This stream is separate from the Rayleigh RNG.
-Reflectors are sorted by position before drawing phases. Two entries that
-round to the same bin are rejected: their internal ordering is not resolved.
 
-We choose real field transmission `t = sqrt(1-R)`. Reflection from the right
-is then `-conj(r)`, so the lossless interface has the reciprocal, unitary
-matrix `[[r, t], [t, -conj(r)]]`. This fixes the relative phases of direct
-returns and ghosts; the phases of separate bounces are not drawn independently.
-For the underlying two-port constraints, see the scattering-matrix discussion
-in [Karlsson's electrodynamics notes, section 3.7](https://www.eit.lth.se/fileadmin/eit/courses/eitn80/root.pdf).
+A point reflector adds `r = sqrt(R) exp(j phi)` at its nearest bin
+(`fiber/reflectors.py`). Per-core seeded phases, drawn once and reused
+across sweeps; separate stream from the Rayleigh RNG. Reflectors are sorted
+by position before drawing phases; two entries in the same bin are rejected.
 
-`loss_dB` is an extra matched loss just before the interface, on its input
-(smaller-z) side. Writing `q = 10^(-loss_dB/20)`, the left reflection is
-`q^2 r`, right reflection is `-conj(r)`, and transmission is `q t` in either
-direction. This preserves the earlier convention that a direct reflection
-sees its own insertion loss twice. It also avoids counting the reflected
-fraction twice: `loss_dB` is additional to the loss of transmitted power `R`.
+Real field transmission `t = sqrt(1-R)`, right reflection `-conj(r)`, so the
+lossless interface is the reciprocal unitary
+`[[r, t], [t, -conj(r)]]`. This fixes the relative phases of direct returns
+and ghosts; separate bounces are not independent. Two-port constraints in
+Karlsson's electrodynamics notes, section 3.7.
 
-The direct-return envelope includes `1-R` beyond each reflector and
-`10^(-loss_dB/10)` from its bin onwards. The reflector's own return does not
-cross its interface. Rayleigh and weak-FBG returns at that same bin use the
-upstream-side convention. With `R=1`, all later direct returns vanish.
+`loss_dB` is an extra matched loss on the input side. With
+`q = 10^(-loss_dB/20)`, left reflection `q^2 r`, right `-conj(r)`,
+transmission `q t` either way. Direct reflection sees its own insertion loss
+twice; `loss_dB` is additional to the transmitted-power loss `R`. Envelope:
+`1-R` beyond each reflector, `10^(-loss_dB/10)` from its bin onwards. The
+reflector's own return does not cross its interface. Rayleigh and weak-FBG
+returns at the same bin use the upstream-side convention. `R=1` kills all
+later direct returns.
 
 ### Multiple-scattering ghosts
-Light can bounce between discrete reflectors and return at a later delay
-(`fiber/multiple_scattering.py`). An order-N path has `2N-1` reflections and
+
+Light can bounce between discrete reflectors and come back at a later delay
+(`fiber/multiple_scattering.py`). Order-N path, `2N-1` reflections,
 apparent depth
 
     z_app = z_i0 - z_i1 + z_i2 - ... + z_i(2N-2)
 
-Every odd "valley" must sit strictly below both neighbours. Positions are
-rounded to bins before forming this sum. Each path multiplies the directional
-reflection coefficients and the transmission of every intervening interface,
-including the initial trip from the input and the final trip back.
+Every odd valley strictly below both neighbours; positions rounded to bins
+before summing. Each path multiplies directional reflection coefficients and
+the transmission of every intervening interface.
 
-Distributed loss is integrated from the input to each bin. Its value at zero
-is zero; the loss assigned to bin k applies to `[z[k], z[k+1])`. For each path
-leg, the difference of these cumulative losses gives the one-way loss of that
-leg. Summing the legs and converting with `10^(-path_loss_dB/20)` gives the
-field attenuation. Segments and bends therefore count on every crossing.
-For uniform loss this agrees with a total distance `2*z_app`; for nonuniform
-loss, the visited sections matter.
+Distributed loss is integrated from the input up to each bin, with the value
+at zero being zero and the loss at bin k applying to `[z[k], z[k+1])`. For
+each leg, the difference of cumulative losses gives the one-way loss;
+summing legs and converting with `10^(-path_loss_dB/20)` gives the field
+attenuation. Uniform loss agrees with `2*z_app`, nonuniform depends on the
+visited sections. First ghost of two lossless interfaces at `a < b`:
+`-(1-R_a) conj(r_a) r_b^2` at `2*b-a`; `(b,a,c)` and `(c,a,b)` share a delay
+and add coherently.
 
-For example, the first ghost of two lossless interfaces at `a < b` is
-`-(1-R_a) conj(r_a) r_b^2` at `2*b-a`, before distributed attenuation.
-The two paths `(b,a,c)` and `(c,a,b)` share a delay and add coherently.
-
-`Acquisition.ghost_profile` stores these already attenuated returns separately.
-The optics step adds them to `fiber_profile * attenuation_envelope`, then
-applies the usual coherence roll-off and beat transform. Dividing by the
-direct envelope would fail behind an opaque reflector or an underflowed loss,
-even when a shorter physical path still produces a ghost at that delay.
-
-The expansion still stops at `max_order` (2 or 3), and out-of-range ghosts
-are dropped. It is a finite-bounce model, not a converged high-finesse cavity
-solver. Index, strain and temperature perturbations still use the phase at
-the apparent bin, so nonuniform perturbations along a ghost path remain an
-approximation. Rayleigh-mediated multiple scattering is outside this model.
-
-`tests/test_reflector_paths.py` checks complex two-mirror amplitudes, repeated
-crossings, localized loss, opaque interfaces, sweep reproducibility and the
-optics sum. A separate frequency-domain recursion sums the infinite series
-for three weak mirrors; its impulse response must agree within `1e-10` field
-amplitude, where omitted orders are below that tolerance. These are numerical
-checks of the scalar model, not experimental validation.
+`Acquisition.ghost_profile` stores the attenuated returns separately; optics
+adds them to `fiber_profile * attenuation_envelope` before coherence
+roll-off and the beat transform. Dividing by the direct envelope would fail
+behind an opaque reflector or an underflowed loss, even when a shorter path
+still produces a ghost there. Finite-bounce, not a high-finesse solver:
+expansion stops at `max_order` (2 or 3) and out-of-range ghosts are dropped.
+Perturbations use the phase at the apparent bin, so a ghost path with
+nonuniform strain is approximate. `tests/test_reflector_paths.py` covers
+two-mirror amplitudes, repeated crossings, localized loss, opaque
+interfaces, sweep reproducibility, and a frequency-domain recursion for
+three weak mirrors to `1e-10` field amplitude.
 
 ### Strain
 A scatterer at z picks up an extra round-trip phase from the integrated strain (`fiber/strain.py`):
