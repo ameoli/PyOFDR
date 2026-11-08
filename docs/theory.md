@@ -607,69 +607,71 @@ DC/beat mixing. With a saturation limit also configured, each polynomial
 output (including the static single-ended baseline) is clipped as above.
 
 ## ADC
+
 `digitizer/adc.py`.
 
 ### Quantization
-Uniform floor quantizer, `2^bits` levels, hard clip at `+/- V_range/2`, theoretical noise standard deviation
+
+Uniform floor quantizer, `2^bits` levels, hard clip at `+/- V_range/2`,
+theoretical noise std
+
     sigma_q = V_range / (2^bits sqrt(12))
 
 ### ENOB
-The effective number of bits lumps jitter + INL + analog noise into one number, injected as an extra gaussian before quantization:
+
+Lumps jitter + INL + analog noise into one number, injected as extra
+gaussian before quantization:
+
     sigma_total = V_range / (2^enob sqrt(12))
     sigma_extra = sqrt(sigma_total^2 - sigma_q^2)
 
 ### Aperture jitter
-A timing error `dt_err ~ N(0, sigma_j)` becomes a voltage error to first order, `dV = (dV/dt) dt_err`, with the slope from finite differences.
-For a single sample the slope is unknown, so the ADC skips the jitter correction.
+
+Timing error `dt_err ~ N(0, sigma_j)` becomes `dV = (dV/dt) dt_err`, slope
+from finite differences. Single-sample slope unknown, so the ADC skips the
+jitter correction there.
 
 ### DNL / INL
-Nonlinearities act on the voltage thresholds before a code is assigned. With
-`N = 2^bits` and `LSB = V_range/N`, the ideal boundaries are
-`T[j] = (j-N/2)*LSB`, including the two full-scale endpoints. A sample exactly
-on an internal threshold takes the upper code, as in the ideal floor quantizer.
 
-For DNL, draw `N` positive lognormal widths with log standard deviation
-`sqrt(log(1+dnl_rms_lsb^2))`, then normalize their sum to `N`. The cumulative
-widths replace the ideal boundary positions `j`. Before finite-sample
-normalization, the width distribution has coefficient of variation
-`dnl_rms_lsb`; the measured DNL RMS of a particular chip has sampling scatter.
-Positive widths avoid the negative code widths possible with Gaussian DNL.
-This lognormal choice is a model assumption, not a measured device distribution.
+Nonlinearities act on the voltage thresholds before a code is assigned.
+`N = 2^bits`, `LSB = V_range/N`, ideal boundaries
+`T[j] = (j-N/2)*LSB` including the two full-scale endpoints. A sample exactly
+on an internal threshold takes the upper code, as in the ideal floor
+quantizer.
 
-INL then adds `inl_peak_lsb*sin(2*pi*j/N)` to these boundary positions, in LSB.
-The endpoints stay fixed, so neither contribution adds a net full-scale gain
-error. With both enabled, the random widths also contribute to INL, and the
-sinusoidal displacement contributes to DNL: the two parameters describe
-components, not bounds on the total error. Combinations that cross thresholds
-or produce numerically indistinguishable boundaries raise `ValueError`.
-Missing codes are not modeled.
+DNL: draw `N` positive lognormal widths with log std
+`sqrt(log(1+dnl_rms_lsb^2))`, normalize the sum to `N`, cumulative widths
+replace the ideal boundary positions. Before finite-sample normalization the
+width distribution has coefficient of variation `dnl_rms_lsb`; the measured
+DNL RMS of a particular chip has sampling scatter. Positive widths avoid the
+negative code widths you could get with Gaussian DNL. This lognormal is a
+model assumption, not a measured device distribution.
 
-The threshold realization is fixed by the simulation seed and shared across
-sweeps and channels. ENOB noise and aperture jitter are applied before threshold
-comparison. With both nonlinearities zero, the original ideal quantizer is used.
-A tiny threshold displacement only changes samples near that threshold; it
-does not shift a whole code bin by one LSB. Tests in `test_adc_thresholds.py`
-recover transitions by bisection and verify code widths with a uniform ramp.
+INL adds `inl_peak_lsb*sin(2*pi*j/N)` in LSB. Endpoints stay fixed, so
+neither contributes a net full-scale gain error. With both enabled the random
+widths also contribute to INL and the sinusoidal displacement to DNL: the two
+parameters describe components, not bounds. Crossing or numerically
+indistinguishable boundaries raise `ValueError`. Missing codes are not
+modeled.
 
-Threshold tables are limited to 20 bits: a float64 table then takes about
-8 MiB, rather than 32 GiB at 32 bits. Random DNL above 20 bits is rejected
-at configuration validation; its independent code widths are not replaced
-with a coarser or periodic approximation.
+Realization fixed by the simulation seed, shared across sweeps and channels.
+ENOB noise and jitter applied before threshold comparison. With both
+nonlinearities zero, the original ideal quantizer is used. A tiny threshold
+displacement only changes samples near it, not a whole code bin.
+`test_adc_thresholds.py` recovers transitions by bisection and verifies code
+widths with a uniform ramp.
 
-For 21-32 bits with sinusoidal INL alone, integer binary search evaluates
-the same thresholds directly. Each sample takes `bits` comparisons, processed
-in blocks of at most 65536 samples, so temporary search storage does not grow
-with the number of ADC codes. Input and output storage still scales with the
-acquisition size. This trades computation time for bounded memory.
-The minimum sinusoidal code width is `1-A*sin(2*pi/N)` LSB. The analytic path
-requires this to exceed `8*ulp(N)` to leave a floating-point rounding margin;
-otherwise configuration validation rejects the thresholds as crossed or too
-close to resolve. The tabulated path checks its realized boundaries directly.
-`test_adc_memory.py` checks agreement with an explicit 21-bit table, 32-bit
-transition ties, reproducibility across blocks, and bounded memory use.
+Threshold tables limited to 20 bits (float64 table ~8 MiB, vs 32 GiB at 32
+bits). Random DNL above 20 bits rejected at validation; not replaced by a
+coarser or periodic approximation. For 21-32 bits with sinusoidal INL alone,
+integer binary search evaluates the same thresholds directly, in blocks of
+at most 65536 samples. Minimum sinusoidal code width `1-A*sin(2*pi/N)` LSB
+must exceed `8*ulp(N)` for the analytic path, otherwise the thresholds are
+rejected as crossed or too close to resolve. Tabulated path checks realized
+boundaries directly. `test_adc_memory.py` covers 21-bit agreement, 32-bit
+transition ties, block reproducibility, bounded memory.
 
-Ref: [Analog Devices MT-010](https://www.analog.com/media/en/training-seminars/tutorials/mt-010.pdf),
-for the definitions of transition-level INL and code-width DNL.
+Transition-level INL and code-width DNL: [Analog Devices MT-010](https://www.analog.com/media/en/training-seminars/tutorials/mt-010.pdf).
 
 ## Analysis
 Post-processing under `analysis/`; reads the simulated output back.
