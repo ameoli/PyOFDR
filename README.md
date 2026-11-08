@@ -2,17 +2,16 @@
 [![Tests](https://github.com/ameoli/PyOFDR/actions/workflows/tests.yml/badge.svg)](https://github.com/ameoli/PyOFDR/actions/workflows/tests.yml)
 ![license](https://img.shields.io/github/license/ameoli/PyOFDR)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
-![status](https://img.shields.io/badge/status-alpha-orange)
 
 PyOFDR simulates optical frequency domain reflectometry (OFDR) in Python. Give it a fiber, a laser sweep and a receiver. It returns the digitized beat signal for each fiber core. You can use these traces to check a strain recovery algorithm against a known input, study receiver noise or try different sweep and sampling settings.
 
-![Distributed strain shift recovered from PyOFDR](docs/img/strain_shift.png)
+![Distributed strain shift recovered from PyOFDR](https://raw.githubusercontent.com/ameoli/PyOFDR/main/docs/img/strain_shift.png)
 
 *1000 microstrain applied to a 1 m segment of a 10 m fiber, recovered from a single PyOFDR run by sub-spectrum cross-correlation against an unstrained baseline.*
 
 ## Status
 
-PyOFDR is in alpha (`0.9.0a0`). It runs on the NumPy backend and requires Python 3.10 or later. CI runs on Windows and Ubuntu with Python 3.10, 3.11 and 3.12. The [pipeline validation section](docs/theory.md#pipeline-level-validation) gives the tested cases and their numerical tolerances.
+PyOFDR runs on the NumPy backend and requires Python 3.10 or later. CI runs on Windows and Ubuntu with Python 3.10, 3.11 and 3.12. The [pipeline validation section](https://github.com/ameoli/PyOFDR/blob/main/docs/theory.md#pipeline-level-validation) gives the tested cases and their numerical tolerances.
 
 ## What's simulated
 | Stage | Modelled |
@@ -25,11 +24,13 @@ PyOFDR is in alpha (`0.9.0a0`). It runs on the NumPy backend and requires Python
 | **ADC** | clip, quantize, jitter, DNL/INL, ENOB |
 | **Output** | HDF5 streaming, multi-sweep campaigns |
 
-For equations and model limits, see the [theory guide](docs/theory.md). The [configuration reference](docs/config_reference.md) describes the YAML fields and units. The [architecture guide](docs/architecture.md) follows a sweep through the simulation and describes the output arrays.
+For equations and model limits, see the [theory guide](https://github.com/ameoli/PyOFDR/blob/main/docs/theory.md). The [configuration reference](https://github.com/ameoli/PyOFDR/blob/main/docs/config_reference.md) describes the YAML fields and units. The [architecture guide](https://github.com/ameoli/PyOFDR/blob/main/docs/architecture.md) follows a sweep through the simulation and describes the output arrays.
 
 ## Install
 
-Clone the repository and create a virtual environment.
+To install the published package from PyPI, run `python -m pip install pyofdr` in a virtual environment.
+
+For the basic YAML configuration, notebooks and tests, clone the repository and create a virtual environment.
 
 ```bash
 git clone https://github.com/ameoli/PyOFDR.git
@@ -45,7 +46,7 @@ python -m pip install -e .
 
 ## Quick start
 
-From the repository root, run the [basic configuration](configs/ofdr_basic.yaml). It simulates a 10 m fiber and a 40 nm sweep in 10 ms at 200 MS/s. `info` shows the spatial spacing and Nyquist limit. `validate` checks the configuration, and `run` writes the simulated sweep to HDF5.
+From the repository root, run the [basic configuration](https://github.com/ameoli/PyOFDR/blob/main/configs/ofdr_basic.yaml). It simulates a 10 m fiber and a 40 nm sweep in 10 ms at 200 MS/s. `info` shows the spatial spacing and Nyquist limit. `validate` checks the configuration, and `run` writes the simulated sweep to HDF5.
 
 ```bash
 pyofdr info configs/ofdr_basic.yaml
@@ -77,11 +78,11 @@ python -m jupyterlab examples/
 
 Open a notebook and run all cells from the beginning. The examples load the basic YAML configuration relative to the notebook directory.
 
-- [00: Fiber signature](examples/00_fiber_signature.ipynb) compares Rayleigh statistics with theory.
-- [01: Reflectogram basics](examples/01_reflectogram_basics.ipynb) maps ADC samples to distance and compares repeated sweeps.
-- [02: Reflector loss and linewidth](examples/02_reflector_loss_and_linewidth.ipynb) measures round-trip attenuation, coherence loss and peak width.
-- [03: Strain recovery](examples/03_strain_recovery.ipynb) recovers an imposed strain from two Rayleigh traces.
-- [04: Noise budget](examples/04_noise_budget.ipynb) compares predicted and measured shot, thermal and quantization noise.
+- [00: Fiber signature](https://github.com/ameoli/PyOFDR/blob/main/examples/00_fiber_signature.ipynb) compares Rayleigh statistics with theory.
+- [01: Reflectogram basics](https://github.com/ameoli/PyOFDR/blob/main/examples/01_reflectogram_basics.ipynb) maps ADC samples to distance and compares repeated sweeps.
+- [02: Reflector loss and linewidth](https://github.com/ameoli/PyOFDR/blob/main/examples/02_reflector_loss_and_linewidth.ipynb) measures round-trip attenuation, coherence loss and peak width.
+- [03: Strain recovery](https://github.com/ameoli/PyOFDR/blob/main/examples/03_strain_recovery.ipynb) recovers an imposed strain from two Rayleigh traces.
+- [04: Noise budget](https://github.com/ameoli/PyOFDR/blob/main/examples/04_noise_budget.ipynb) compares predicted and measured shot, thermal and quantization noise.
 
 ## Tests
 
@@ -110,10 +111,12 @@ If you use PyOFDR in published work, please cite it.
 - Hartog, *An Introduction to Distributed Optical Fibre Sensors*, CRC 2017.
 
 ## License
-PyOFDR is distributed under the [MIT license](LICENSE).
+PyOFDR is distributed under the [MIT license](https://github.com/ameoli/PyOFDR/blob/main/LICENSE).
 
 ### Third-party
-The laser noise generator uses [colorednoise](https://github.com/felixpatzelt/colorednoise) by Felix Patzelt. Its [MIT license](LICENSES/colorednoise-MIT.txt) is included in the source and wheel distributions.
+The laser noise generator uses [colorednoise](https://github.com/felixpatzelt/colorednoise) by Felix Patzelt. Its [MIT license](https://github.com/ameoli/PyOFDR/blob/main/LICENSES/colorednoise-MIT.txt) is included in the source and wheel distributions.
 
 ## Issues and contributions
 Report bugs and feature requests in [GitHub Issues](https://github.com/ameoli/PyOFDR/issues). For simulation bugs, include the YAML configuration and the command that reproduces the problem. Pull requests are welcome.
+
+Maintainers can follow the [release instructions](https://github.com/ameoli/PyOFDR/blob/main/docs/releasing.md) to publish a tagged version on PyPI.
