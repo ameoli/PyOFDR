@@ -814,10 +814,60 @@ configurable-factor proposal is superseded by validation of the fixed coarse
 search plus continuous refinement.
 
 ### Pipeline-level validation
-_Work in progress._
+
+[Pipeline tests](../tests/test_validation.py), fixed seed, known result:
+
+```bash
+python -m pytest tests/test_validation.py -q
+```
+
+**Beat frequency.** Reflector at 3 m in a 5 m fibre, linear 40 nm sweep.
+Expected `2 n γ z / c`. Remove DC, middle 80% of the analog trace, largest
+FFT peak within five bins of the expected frequency. Bin width is the one
+for the trimmed trace.
+
+**Attenuation.** Same 5 m Rayleigh fibre, zero loss vs 100 dB/km one-way.
+Subtract power reflectograms in dB (lossy minus lossless), smooth over 1000
+bins and fit a straight line between 0.3 and 4.7 m. The expected round-trip
+slope is −0.200 dB/m. The test allows 1% relative error. With zero loss in
+both runs, the absolute slope difference must stay below `1e-6` dB/m.
+
+**Receiver noise.** Noisy minus clean analog trace, divide by input
+impedance, discard first and last 10%. Compare std with the
+[noise budget](#budget). Shot, thermal and dark checked separately and
+together in both detector modes. At 100 MS/s: first order at 2 MHz, fourth
+order at 20 MHz, eighth order at 80 MHz (reaches the cutoff clamp). 3%
+error allowed.
+
+**Beat RIN and ADC noise.** RIN −110 dB/Hz, RMS beat current before the
+filter predicts the added noise. Second test adds receiver noise and 16-bit
+quantization, once with ideal ADC and once with 12-bit ENOB. Convert counts
+back to volts, subtract clean analog. Quantization error counted once. Both
+detector modes, measured std for RIN, analog and total sampled noise within
+3% of the budget.
+
+**Strain.** 1000 µε between 0.3 and 0.7 m on a 1 m fibre. Cross-correlate
+digitized reflectograms of strained and reference with a 1 cm gauge and a
+2 mm step. Median shift for window centres between 0.38 and 0.62 m must
+agree with `−ν₀ (1 − p_e) ε` within 5% for `p_e` 0.22 and 0.40. Compression
+reverses the sign, same magnitude within 10%.
+
+**Temperature.** Same segment, 50 K. Expected shift `−ν₀ (α_L + ξ) ΔT`.
+Two pairs `(0.55, 6.5)` and `(1, 8)` in `10⁻⁶ K⁻¹`, both within 5%.
+
+Tolerances apply to the simulated cases. Strain and temperature are applied
+separately; separating them from a single measured shift needs more
+information. The sampled-noise test covers an ADC below clipping, jitter
+and nonlinear thresholds disabled. Accuracy of a real interrogator needs
+calibrated measurements.
 
 ## Conventions
-- attenuation envelope is a field, but `|.|^2` is round-trip power,  hence `10^(-loss_dB/10)` (not /20) on field steps.
-- Rayleigh coefficient in dB is backscattered power per metre, `10^(x/10)`
-- seeding via `utils.seeding.derive_seed(seed, component=, core=, sweep=, sub=)`, one RNG per component x noise type, so toggling one source doesn't reseed the others
-- every step works through `self.bk.xp` (numpy today, cupy will be implemented in V2).
+
+- attenuation envelope is a field, but `|.|^2` is round-trip power, hence
+  `10^(-loss_dB/10)` (not /20) on field steps;
+- Rayleigh coefficient in dB is backscattered power per metre,
+  `10^(x/10)`;
+- seeding via `utils.seeding.derive_seed(seed, component=, core=, sweep=,
+  sub=)`, one RNG per component times noise type, so toggling one source
+  doesn't reseed the others;
+- every step works through `self.bk.xp` (numpy today, cupy in V2).
