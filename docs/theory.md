@@ -217,108 +217,132 @@ interfaces, sweep reproducibility, and a frequency-domain recursion for
 three weak mirrors to `1e-10` field amplitude.
 
 ### Strain
-A scatterer at z picks up an extra round-trip phase from the integrated strain (`fiber/strain.py`):
+
+A scatterer at z picks up an extra round-trip phase from the integrated
+strain (`fiber/strain.py`):
 
     d_phi(z) = 2 k0 n (1 - p_e) integral_0^z eps(z') dz'
-with `k0 = 2 pi / lambda` and `p_e ~ 0.22` the photoelastic coefficient at 1550 nm. The `(1 - p_e)` factor folds in the index change from the
-strain itself, so the geometric stretch isn't double counted. The profile is
-multiplied by `exp(j phase)`. For strain, temperature and index changes, the
-added phase at the fiber input is zero. Each step from `z[k]` to `z[k+1]`
-accumulates the phase from the field sampled at `z[k]` over one cell of length `dz`.
 
-Ref: Froggatt & Moore, Appl. Opt. 37, 1735 (1998); Bertholds &
-Dandliker, J. Lightwave Technol. 6, 17 (1988).
+`k0 = 2 pi / lambda`, `p_e ~ 0.22` at 1550 nm. The `(1 - p_e)` factor folds
+in the index change, so the geometric stretch isn't double counted. Profile
+multiplied by `exp(j phase)`. For strain, temperature and index changes the
+added phase at the fiber input is zero. Each step from `z[k]` to `z[k+1]`
+accumulates the phase from the field at `z[k]` over one `dz`.
+
+Froggatt & Moore, Appl. Opt. 37, 1735 (1998); Bertholds & Dandliker,
+J. Lightwave Technol. 6, 17 (1988).
 
 ### Strain transfer host to fiber
+
 Two models in `strain_transfer/`:
 
 - ideal: `eps_fiber = eps_host` inside the segment, zero outside.
-- Cox shear-lag: `eps_fiber(s) = eps_host (1 - cosh(beta s)/cosh(beta L_h))`   with `s` from segment centre, `L_h` the half-length and `beta` a shape   constant [1/m] passed in config — lumps bonding shear modulus, geometry   and Young's modulus, not derived from elastic constants here.
+- Cox shear-lag: `eps_fiber(s) = eps_host (1 - cosh(beta s)/cosh(beta L_h))`,
+  `s` from segment centre, `L_h` half-length, `beta` a shape constant [1/m]
+  from config. It lumps bonding shear modulus, geometry and Young's modulus;
+  not derived from elastic constants here.
 
-Ref: Cox, Br. J. Appl. Phys. 3, 72 (1952).
+Cox, Br. J. Appl. Phys. 3, 72 (1952).
 
 ### Dynamic strain motions
-Motions in `strain_transfer/motions.py` are sampled at lab time `t = sweep_index * T_sweep` (one value per sweep) and collapsed to a single `eps(t)` per segment, added to the static offset:
+
+`strain_transfer/motions.py`, sampled at lab time `t = sweep_index * T_sweep`
+(one value per sweep), collapsed to a single `eps(t)` per segment and added
+to the static offset:
 
 - harmonic: `eps(t) = A sin(2 pi f t + phi)`, warns if
-  `f >= 1/(2 T_sweep)` (sweep-rate Nyquist),
-- thermal relaxation: `eps(t) = A (1 - exp(-t/tau))`,
-- impulsive: `eps(t) = A exp(-(t-t0)^2 / 2 sigma^2)` (not zero-mean,  leaves a residual),
-- random vibration: `eps(t) ~ N(0, A^2)`, stateless via a SeedSequence   on `(seed, t)` so it's reproducible without a buffer.
+  `f >= 1/(2 T_sweep)`;
+- thermal relaxation: `eps(t) = A (1 - exp(-t/tau))`;
+- impulsive: `eps(t) = A exp(-(t-t0)^2 / 2 sigma^2)`, not zero-mean, leaves a
+  residual;
+- random vibration: `eps(t) ~ N(0, A^2)`, stateless via a SeedSequence on
+  `(seed, t)`, reproducible without a buffer.
 
 ### Index perturbation (small-signal dn)
-Deterministic segments rotate the round-trip phase without moving the bins (`fiber/profile.py`):
-    d_phi(z) = 2 k0 integral_0^z delta_n dz'
-same as strain but without the `(1 - p_e)` factor. On top of the segments there's a stochastic slice: an Ornstein-Uhlenbeck process discretised as AR(1)
-    dn[k] = a dn[k-1] + sigma sqrt(1 - a^2) eta[k],   a = exp(-dz / L_corr)
-started from the stationary distribution (`dn[0] = sigma eta[0]`), so the variance is `sigma^2` and the lag-1 autocorrelation is `exp(-dz/L_corr)`.
-The full OPL-based n(z) remap (splices SMF/DCF, hollow-core, tapers, absolute metrology) is the rest of #33, still V2.
 
-Ref: Froggatt & Moore, Appl. Opt. 37, 1735 (1998).
+Deterministic segments rotate the round-trip phase without moving the bins
+(`fiber/profile.py`):
+
+    d_phi(z) = 2 k0 integral_0^z delta_n dz'
+
+Same as strain without `(1 - p_e)`. On top, a stochastic slice: an
+Ornstein-Uhlenbeck process discretised as AR(1),
+
+    dn[k] = a dn[k-1] + sigma sqrt(1 - a^2) eta[k],   a = exp(-dz / L_corr)
+
+started from the stationary distribution (`dn[0] = sigma eta[0]`), so the
+variance is `sigma^2` and the lag-1 autocorrelation is `exp(-dz/L_corr)`.
+The full OPL-based n(z) remap (splices, hollow-core, tapers, absolute
+metrology) is the rest of #33, still V2.
 
 ### Distributed temperature
-Temperature segments add (`fiber/temperature.py`)
+
+`fiber/temperature.py`, segments add
+
     d_phi(z) = 2 k0 n (alpha_L + xi) integral_0^z dT dz'
-with silica defaults `alpha_L = 5.5e-7 /K` (thermal expansion) and `xi = (1/n) dn/dT = 6.5e-6 /K` (thermo-optic). Added to the strain phase this closes the Froggatt-Moore relation
+
+Silica defaults `alpha_L = 5.5e-7 /K`, `xi = (1/n) dn/dT = 6.5e-6 /K`.
+Together with the strain phase this closes the Froggatt-Moore relation
+
     df/f = -(1 - p_e) eps - (alpha_L + xi) dT
-so pure temperature looks like an apparent strain `eps_app = (alpha_L + xi)/(1 - p_e) dT`, about 9.04 ue/K for silica at 1550 nm. Segments can carry a `motion` (see above) read as `dT(t)`.
-The 1D thermal-diffusion PDE along z is V2 (#76).
+
+so pure temperature looks like an apparent strain
+`eps_app = (alpha_L + xi)/(1 - p_e) dT`. Segments can carry a `motion`
+(above) read as `dT(t)`. The 1D thermal-diffusion PDE along z is V2 (#76).
 
 ### MCF core-to-core crosstalk
-Scalar phase-scrambled model (level A) for multicore fibre (`fiber/crosstalk.py`):
+
+Scalar phase-scrambled model (`fiber/crosstalk.py`):
+
     c(z) = sqrt(XT_lin * z/1000)
     profile_target(z) += c(z) exp(j phi_rand(z)) profile_source(z)
-with `XT_lin = 10^(XT_dB_per_km/10)` and an independent U(0, 2pi) phase per bin per directed pair. Topologies `hex7` and `linear`.
-Weak-coupling limit — the power leaking out isn't subtracted from the source cores (fine for XT well below -20 dB/km). Full coupled-mode is V2 (#69).
 
-Ref: Hayashi et al., Opt. Express 19, 16576 (2011).
+`XT_lin = 10^(XT_dB_per_km/10)`, independent U(0, 2pi) phase per bin per
+directed pair. Topologies `hex7` and `linear`. Weak-coupling limit: the power
+leaking out isn't subtracted from the source cores. Full coupled-mode is
+V2 (#69). Hayashi et al., Opt. Express 19, 16576 (2011).
 
 ### FBG arrays (Born approximation)
-A weak Bragg grating acts as a reflector with a sinc spectral response (`fiber/fbg.py`):
+
+A weak Bragg grating is a reflector with a sinc spectral response
+(`fiber/fbg.py`):
 
     r(t) = sqrt(R_max) sinc(2 n L_g (nu(t) - nu_B) / C)
 
-with `nu_B = C/lambda_B`, `L_g` the physical grating length and
-`sinc(x) = sin(pi x)/(pi x)`. First null at `Delta_nu = C/(2 n L_g)`.
-Added separately to the beat with carrier `cos(2*pi*k*s(t)/T)`, where `k`
-is the grating's rounded spatial bin and `s(t)` is the same warped time used
-for Rayleigh and ghost returns. The envelope uses the actual laser frequency
-`nu_inst`, while propagation phase includes sweep nonlinearity, ripple, GVD
-and slow FM. GVD changes this phase coordinate, not the frequency argument
-of the grating's envelope. White FM stays out of the propagation warp,
-consistently with the main-beat approximation; linewidth still supplies the
-coherence roll-off and frequency noise can modulate the spectral envelope.
+`nu_B = C/lambda_B`, `L_g` the physical length, `sinc(x) = sin(pi x)/(pi x)`.
+First null at `Delta_nu = C/(2 n L_g)`. Added separately to the beat with
+carrier `cos(2*pi*k*s(t)/T)`, `k` the grating's rounded spatial bin, `s(t)`
+the same warped time used for Rayleigh and ghosts. The envelope uses
+`nu_inst`; the propagation phase includes nonlinearity, ripple, GVD and slow
+FM. GVD changes the phase coordinate, not the frequency argument of the
+envelope. White FM stays out of the warp, consistently with the main beat;
+linewidth still gives the coherence roll-off and frequency noise can
+modulate the envelope.
 
-For a linear chirp, `s(t)=t`; in z-space the FBG is not a delta but a rect
-of width `L_g/dz` bins. Born is fine for `R_max <~ 0.5`;
-coupled-mode / transfer-matrix for strong gratings is V2 (#78).
+Linear chirp: `s(t)=t`; in z-space the FBG is a rect of `L_g/dz` bins, not a
+delta. Born is fine for `R_max <~ 0.5`; coupled-mode / transfer-matrix for
+strong gratings is V2 (#78).
 
-The configured `bragg_wavelength` is the unperturbed resonance. At each sweep,
-the FBG reads the applied strain and temperature change at its spatial bin:
+Configured `bragg_wavelength` is the unperturbed resonance. At each sweep:
 
     lambda_B_eff = lambda_B * (1 + (1 - p_e) eps + (alpha_L + xi) dT)
     nu_B = C / lambda_B_eff
 
-Coefficients come from `strain.photoelastic_coefficient`,
-`temperature.thermal_expansion` and `temperature.thermo_optic`. Strain is
-taken after host-to-fiber transfer, including Cox when selected. Missing
-fields mean zero perturbation. Temperature expansion is already included
-in the thermal term; do not add that same free-fiber expansion to the strain
-field again.
+Coefficients from `strain.photoelastic_coefficient`,
+`temperature.thermal_expansion`, `temperature.thermo_optic`. Strain is taken
+after host-to-fiber transfer, including Cox when selected. Missing fields
+mean zero perturbation. Temperature expansion is already in the thermal
+term; don't add the free-fiber expansion to the strain field again.
 
-This is a small-perturbation model with a uniform field over each grating,
-sampled at the same rounded z-bin used for its beat phase and attenuation.
-Strain and temperature shift the resonance without changing grating length,
-bandwidth, peak reflectivity or adding their own propagation phase. Gradients along a grating and the resulting
-spectral distortion are not represented. The configured wavelength stays
-unchanged between sweeps; an effective wavelength that is nonpositive or
-nonfinite is rejected.
+Uniform field over each grating, sampled at the same rounded z-bin used for
+its beat phase and attenuation. Strain and temperature shift the resonance
+without changing grating length, bandwidth, peak reflectivity, or adding
+their own propagation phase. The configured wavelength stays unchanged
+between sweeps; nonpositive or nonfinite effective wavelengths are rejected.
+`tests/test_fbg_nonlinearity.py` covers quadratic/cubic sweep errors, ripple,
+both GVD signs, slow FM, fractional sample counts and repeated sweeps.
 
-`tests/test_fbg_nonlinearity.py` compares the beat with the analytic envelope
-and phase for quadratic/cubic sweep errors, ripple, both GVD signs and slow
-frequency noise, including fractional sample counts and repeated sweeps.
-
-Ref: Erdogan, J. Lightwave Technol. 15, 1277 (1997).
+Erdogan, J. Lightwave Technol. 15, 1277 (1997).
 
 ## Optics
 `optics/mach_zehnder.py` turns the profile into a photocurrent, plus the
