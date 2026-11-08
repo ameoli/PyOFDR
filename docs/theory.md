@@ -674,32 +674,34 @@ transition ties, block reproducibility, bounded memory.
 Transition-level INL and code-width DNL: [Analog Devices MT-010](https://www.analog.com/media/en/training-seminars/tutorials/mt-010.pdf).
 
 ## Analysis
-Post-processing under `analysis/`; reads the simulated output back.
+
+Post-processing under `analysis/`.
 
 ### Budget
+
 `analysis/budget.py` estimates optical power, receiver and ADC noise, and
 strain/temperature sensitivities for the configured receiver mode. Optical
-backscatter estimates use homogeneous attenuation; segments and bends are
-not folded in. Material sensitivities use `strain.photoelastic_coefficient`,
-`temperature.thermal_expansion` and `temperature.thermo_optic` from the config.
+backscatter uses homogeneous attenuation; segments and bends are not folded
+in. Material sensitivities from `strain.photoelastic_coefficient`,
+`temperature.thermal_expansion`, `temperature.thermo_optic`.
 
-All `sigma_*` values are current standard deviations in A, referred through
-the configured transimpedance. Their measurement points are:
+All `sigma_*` are current standard deviations in A, referred through the
+configured transimpedance:
 
 | Quantity | Meaning |
 | --- | --- |
-| `I_dc_ref` | Reference-arm equivalent current before the recombiner (retained convention) |
+| `I_dc_ref` | Reference-arm equivalent current before the recombiner |
 | `I_dc_pd` | Half of `I_dc_ref`, incident on each photodiode |
-| `bandwidth`, `filter_cutoff` | Requested cutoff and actual clamped cutoff, Hz |
-| `noise_bandwidth` | One-sided equivalent noise bandwidth of the receiver filter, Hz |
-| `sigma_shot`, `sigma_thermal`, `sigma_dark` | Filtered receiver contributions; disabled shot noise is zero |
-| `sigma_receiver` | RSS of those three additive contributions |
-| `sigma_rin` | Filtered beat modulation, requiring the noiseless pre-filter beat RMS when RIN is enabled |
-| `sigma_analog` | RSS of receiver and RIN contributions, compared with `analog_main / input_impedance` |
-| `sigma_quant`, `sigma_adc_extra` | Full-Nyquist quantization estimate and additional ENOB noise, generated after the analog filter |
-| `sigma_total` | RSS of analog, quantization and ENOB contributions, with no post-ADC filtering |
+| `bandwidth`, `filter_cutoff` | Requested and actual clamped cutoff, Hz |
+| `noise_bandwidth` | One-sided equivalent noise bandwidth of the filter, Hz |
+| `sigma_shot`, `sigma_thermal`, `sigma_dark` | Filtered receiver contributions |
+| `sigma_receiver` | RSS of those three |
+| `sigma_rin` | Filtered beat modulation, requires noiseless pre-filter beat RMS |
+| `sigma_analog` | RSS of receiver and RIN |
+| `sigma_quant`, `sigma_adc_extra` | Full-Nyquist quantization and ENOB noise |
+| `sigma_total` | RSS of analog, quantization and ENOB, no post-ADC filtering |
 
-For a noiseless acquisition, the optional RIN input can be computed as:
+For a noiseless acquisition the optional RIN input is
 
 ```python
 I_beat = noiseless_acq.photocurrent_main[0] * cfg["detection"]["responsivity"]
@@ -708,120 +710,108 @@ b = compute_budget(cfg, beat_rms_current=beat_rms)
 ```
 
 Use a linear, unsaturated reference run with source RIN and other noise
-disabled, and match the measurement interval (excluding settling). If RIN is
+disabled, matching the measurement interval (settling excluded). If RIN is
 enabled but `beat_rms_current` is omitted, `sigma_rin`, `sigma_analog`,
 `sigma_total`, `nep_total` and `dynamic_range_dB` are `NaN`; the additive
-receiver estimate remains available. `print_budget` explains the missing
-input instead of presenting a DC-based floor as a pipeline prediction.
+receiver estimate remains. `print_budget` explains the missing input rather
+than presenting a DC-based floor as a pipeline prediction.
 
-These are linear, reference-dominated estimates: strong signal-arm power,
-photodiode distortion/clipping, large RIN clipped at zero optical power,
-ADC clipping, jitter and DNL/INL are outside the noise estimate. Quantization
-assumes a uniform error distribution; the ADC's half-LSB floor-quantizer
-bias is not a noise standard deviation. `nep_total = sigma_total / R` is an
-integrated equivalent optical noise, not a density in W/sqrt(Hz).
-`dynamic_range_dB` uses the configured saturation current, or the reference
-current summed over the active photodiodes, as a proxy; it is not a measured
+Linear, reference-dominated estimates: strong signal-arm power, photodiode
+distortion/clipping, large RIN clipped at zero optical power, ADC clipping,
+jitter and DNL/INL are all outside. Quantization assumes uniform error; the
+half-LSB floor-quantizer bias is not a noise std. `nep_total = sigma_total /
+R` is integrated equivalent optical noise, not a density.
+`dynamic_range_dB` uses the configured saturation current (or reference
+current summed over active photodiodes) as a proxy, not a measured
 ADC-limited dynamic range.
 
-`sigma_phi_far` remains the theoretical Lorentzian phase-difference RMS.
-It is separate from the current-noise RSS and does not imply that the main
-MZI simulates a stochastic white-FM pedestal: that component currently enters
-only through deterministic coherence roll-off.
+`sigma_phi_far` is the theoretical Lorentzian phase-difference RMS, separate
+from the current-noise RSS; it does not imply that the main MZI simulates a
+stochastic white-FM pedestal, which currently enters only through the
+deterministic coherence roll-off.
 
-Receiver-noise validation covers both detector modes, orders 1/4/8, and
-cutoffs below and above the sampling Nyquist limit (exercising the clamp).
-Paired noisy/noiseless traces are subtracted before measuring settled RMS;
-the shot, thermal, dark, combined receiver, beat RIN and sampled-total checks
-use a 3% tolerance. Material-coefficient checks compare recovered strain and
-temperature spectral shifts against the budget within 5%.
+Receiver-noise validation covers both detector modes, orders 1/4/8, cutoffs
+below and above the sampling Nyquist limit. Paired noisy/noiseless traces
+subtracted before measuring settled RMS; shot, thermal, dark, combined
+receiver, beat RIN and sampled-total checks use 3% tolerance. Material
+coefficients compared against the budget within 5%.
 
 ### Demodulation
 
 `windowed_xcorr_strain` compares spatial reflectogram windows of `W` samples.
-For reference `a` and measurement `b`, define `q[j] = b[j] * conj(a[j])`.
-The local spectral correlation, apart from normalization, is
+Reference `a`, measurement `b`, `q[j] = b[j] * conj(a[j])`. Local spectral
+correlation, up to normalization:
 
 \[
 C(\ell) = \sum_{j=0}^{W-1} q_j \exp(2\pi i\ell j/W).
 \]
 
-The default `peak_method="continuous"` locates the largest sampled magnitude
+Default `peak_method="continuous"` locates the largest sampled magnitude
 with an IFFT padded to `8W`, then maximizes `|C|^2` over the neighboring
-interval of plus or minus 1/8 original lag bin. The bounded scalar search
-uses an offset tolerance of `1e-10` bins. This is a solver stopping tolerance,
-not a physical accuracy guarantee. Scaling each window before multiplication
-avoids losing faint signals through underflow.
+interval of plus or minus 1/8 original lag bin. Bounded scalar search with
+offset tolerance `1e-10` bins — solver stopping tolerance, not a physical
+accuracy guarantee. Scaling each window before multiplication avoids
+losing faint signals through underflow.
 
-The recovered shift is `dnu = lag * sweep_range_hz / W`, and strain is
-`-dnu / (center_freq * (1 - p_e))`. The lag is periodic and returned in
-`[-W/2, W/2)`. Larger shifts alias; noise or decorrelation can also make
-another peak win. Continuous refinement removes the coarse parabolic
-interpolation bias, but cannot resolve those ambiguities.
+Recovered shift `dnu = lag * sweep_range_hz / W`; strain
+`-dnu / (center_freq * (1 - p_e))`. Lag is periodic, returned in
+`[-W/2, W/2)`. Larger shifts alias; noise or decorrelation can make another
+peak win. Continuous refinement removes the coarse parabolic interpolation
+bias but does not resolve those ambiguities.
 
-Use `peak_method="parabolic"` to reproduce the previous, faster estimator.
-It fits three samples of the unpadded correlation magnitude and can bias
-fractional shifts substantially. Existing calls now use continuous refinement
-and therefore have a higher processing cost. Fiber generation is unchanged.
+`peak_method="parabolic"` reproduces the previous, faster estimator, fitting
+three samples of the unpadded correlation magnitude and biasing fractional
+shifts substantially. Existing calls now use continuous refinement, so the
+processing cost is higher. Fiber generation is unchanged.
 
-Both methods return `NaN` for zero or nonfinite input windows. The continuous
-method also returns `NaN` when fewer than two nonzero spatial samples overlap,
-or when optimization fails. This is a minimal validity check, not a confidence
+Both methods return `NaN` for zero or nonfinite input windows. Continuous
+also returns `NaN` with fewer than two nonzero overlapping spatial samples,
+or when the optimization fails. Minimal validity check, not a confidence
 score. Tests use known phase ramps, both shift signs, periodic boundaries,
-and the fractional shift corresponding to a 5 K temperature change.
+and the fractional shift for a 5 K temperature change.
 
 #### Fractional-lag validation (#105)
 
-The implementation uses fixed 8x coarse localization followed by continuous
-refinement; it does not expose the configurable padding factor proposed in
-the original issue. Validation therefore checks the shipped estimator against
-known shifts, rather than treating a padding-factor sweep as an implemented
-feature.
+Fixed 8x coarse localization followed by continuous refinement; the
+configurable padding factor proposed in the original issue is not exposed.
+Validation checks the shipped estimator against known shifts, rather than
+treating a padding-factor sweep as an implemented feature.
 
 `tests/test_fractional_lag_validation.py` checks 39 lags from -0.95 to +0.95
 bins and four cases straddling the periodic boundaries, for three Rayleigh
-seeds and window sizes 64 and 488. The circular lag error must be below
-`1e-7` bins. The legacy parabolic method is retained as a negative comparison:
-its maximum error over the 39 interior lags exceeds 0.05 bins for each profile.
-These are noiseless numerical checks, not physical resolution claims.
+seeds and window sizes 64 and 488. Circular lag error must stay below `1e-7`
+bins. Legacy parabolic is retained as a negative comparison: maximum error
+over the 39 interior lags exceeds 0.05 bins per profile. Noiseless numerical
+checks, not physical resolution claims.
 
-The same file tests full-pipeline recovery of +/-17 microstrain and +/-5 K
-on a 0.2--0.8 m segment of a 1 m fiber, for two seeds and both detector modes.
-Reference sweep 0 and measurement sweep 1 share the fiber seed. Undoing the
-known perturbation must recover the same complex fiber fingerprint. Subtracting
-each matching noiseless receiver output gives nonzero receiver-noise residuals
-whose absolute Pearson correlation must be below 0.03. Changing the global seed
-would change the fiber too, so it is not a substitute for independent sweeps.
+Same file tests full-pipeline recovery of +/-17 microstrain and +/-5 K on a
+0.2-0.8 m segment of a 1 m fiber, two seeds, both detector modes. Reference
+sweep 0 and measurement sweep 1 share the fiber seed; undoing the known
+perturbation must recover the same complex fiber fingerprint. Subtracting
+each matching noiseless receiver output gives nonzero residuals whose
+absolute Pearson correlation must be below 0.03. Changing the global seed
+would change the fiber too, so it's not a substitute for independent sweeps.
 
-This test uses a linear 40 nm sweep at 1550 nm, 131072 samples at 20 MS/s,
-10 mW laser power, an 8 MHz fourth-order receiver filter, shot noise,
-`1e-12 W/sqrt(Hz)` thermal NEP and `1e-9 A` dark current. The ADC has 18 bits,
-a 0.2 V span and 1000 ohm transimpedance; clipping is checked explicitly.
-For non-overlapping 1 cm gauges wholly inside the segment, the absolute median
-bias must be below 5% of the imposed magnitude and the window RMSE below 10%.
-The median offset before the segment must also be below 5% of that magnitude.
-The existing strain robustness tests additionally use independent sweeps at
-2 mm, 1 cm and 5 cm gauges, with shot noise on and off.
+Linear 40 nm sweep at 1550 nm, 131072 samples at 20 MS/s, 10 mW laser
+power, 8 MHz fourth-order receiver filter, shot noise, `1e-12 W/sqrt(Hz)`
+thermal NEP, `1e-9 A` dark current. ADC 18 bits, 0.2 V span, 1000 ohm
+transimpedance; clipping checked explicitly. For non-overlapping 1 cm
+gauges wholly inside the segment, absolute median bias below 5% of the
+imposed magnitude and window RMSE below 10%; median offset before the
+segment also below 5%. Existing strain robustness tests add independent
+sweeps at 2 mm, 1 cm and 5 cm gauges, shot noise on and off.
 
-The new tests record numerical errors and recovery/noise metrics as pytest
-JUnit properties. For example:
+Metrics recorded as pytest JUnit properties:
 
 ```bash
 pytest tests/test_fractional_lag_validation.py -o junit_family=xunit1 --junitxml=validation.xml
 ```
 
-These finite, reproducible cases cover the regression's receiver-noise regime.
+Finite, reproducible cases covering the regression's receiver-noise regime.
 They do not establish accuracy under fiber decorrelation, phase noise, RIN,
 clipping, arbitrary SNR, or experimental instrument conditions. The original
-issue's configurable-factor proposal is superseded by validation of the fixed
-coarse search plus continuous refinement described above.
-
-### Quality metrics
-Spatial (`analysis/spatial_metrics.py`): peak SNR, integrated reflected power per region, baseline noise floor, dead-zone.
-Strain (`analysis/strain_quality.py`): RMS error vs ground truth, white and 1/f noise slopes, non-overlapping Allan variance.
-
-### Spectral diagnostics
-`analysis/spectral.py`, thin wrappers over scipy.signal (Welch, periodogram) with OFDR-sensible defaults, for checking noise slopes and sweep-nonlinearity spurs.
+configurable-factor proposal is superseded by validation of the fixed coarse
+search plus continuous refinement.
 
 ### Pipeline-level validation
 _Work in progress._
