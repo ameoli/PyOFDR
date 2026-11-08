@@ -345,46 +345,44 @@ both GVD signs, slow FM, fractional sample counts and repeated sweeps.
 Erdogan, J. Lightwave Technol. 15, 1277 (1997).
 
 ## Optics
-`optics/mach_zehnder.py` turns the profile into a photocurrent, plus the
-passive components in `optics/components.py` and the aux MZI.
+
+`optics/mach_zehnder.py` turns the profile into a photocurrent, plus
+`optics/components.py` and the aux MZI.
 
 ### Beat amplitude and scaling
-After the Fourier sum the main photocurrent comes out as
+
+After the Fourier sum the main photocurrent is
 
     photocurrent(t) = prefactor * P(t) * Re[beat]
     prefactor = 2 sqrt(eta (1 - eta)) IL_circ^2
 
-Here `P(t) = |E_source|^2` is instantaneous, not averaged, so the power
-envelope and RIN reach the detector as a multiplicative modulation on the
-AC beat. The slow-envelope approximation `sqrt(P(t) P(t-tau)) ~ P(t)` applies
-while the round-trip delay is much shorter than the envelope timescale.
+`P(t) = |E_source|^2` is instantaneous, so the envelope and RIN reach the
+detector as multiplicative modulation on the AC beat. The slow-envelope
+approximation `sqrt(P(t) P(t-tau)) ~ P(t)` is what we use throughout.
 
 ### Sweep duration and sample grids
 
-For requested duration `T` and ADC rate `fs`, samples occur at `t[j] = j/fs`.
-Their count is `N = ceil(T*fs)`, with products within four floating-point ULPs
-of a positive integer treated as that integer. This prevents roundoff from
-adding a sample; genuine fractional counts are retained. Neither `T` nor `fs`
-is adjusted.
+For requested duration `T` and ADC rate `fs`, samples at `t[j] = j/fs`,
+count `N = ceil(T*fs)`, with products within four ULPs of a positive integer
+treated as that integer. This prevents roundoff from adding a sample;
+genuine fractional counts are kept. Neither `T` nor `fs` is adjusted.
 
-With optical span `B`, the fiber grid remains `dz = c/(2*n*B)`. Its coefficient
-at bin `k` contributes `h[k] * exp(2*pi*i*k*t/T)`. An ordinary IFFT evaluates
-this expression only when `T*fs = N`. Otherwise, the main MZI uses ZoomFFT
-with the positive-exponent convention to evaluate the same sum on the actual
-sample times. Transform coefficients are reused across sweeps. The FBG carrier
-uses `t/T` for a linear chirp and shares `s(t)/T` with the warped fiber sum
-when nonlinearity, dispersion or slow FM is enabled.
+With span `B`, the fiber grid is `dz = c/(2*n*B)`. Bin `k` contributes
+`h[k] * exp(2*pi*i*k*t/T)`. An ordinary IFFT evaluates this only when
+`T*fs = N`; otherwise the main MZI uses ZoomFFT with the positive-exponent
+convention on the actual sample times. Coefficients are reused across
+sweeps. The FBG carrier uses `t/T` for a linear chirp and shares `s(t)/T`
+with the warped fiber sum when nonlinearity, dispersion or slow FM is on.
 
-The unpadded FFT grid is different from the fiber grid for fractional counts:
+The unpadded FFT grid differs from the fiber grid for fractional counts:
 
     frequency_step_hz = (B/T) / fs
     fft_sweep_range_hz = N * frequency_step_hz
     fft_dz = c / (2*n*fft_sweep_range_hz) = dz * T*fs/N
 
-`Acquisition` and HDF5 output retain these quantities. The DFT span uses `N`
-increments; the frequency difference between first and last samples uses
-`N-1`. These are distinct conventions, not a change to the configured sweep.
-`reflectogram_from_acq` applies `fft_dz` automatically. For array-based calls:
+`Acquisition` and HDF5 output retain these. DFT span uses `N` increments,
+the frequency difference between first and last samples uses `N-1`.
+`reflectogram_from_acq` applies `fft_dz` automatically. For array calls:
 
 ```python
 H, z = fft_reflectogram(acq.digital_main[0], acq.fft_dz)
@@ -392,107 +390,125 @@ H, z = fft_reflectogram(acq.digital_main[0], acq.fft_dz)
 # dz=acq.fft_dz, sweep_range_hz=acq.fft_sweep_range_hz
 ```
 
-Zero-padding refines the FFT grid further; use the returned `z` spacing and
-scale the DFT span by `n_pad/N` when demodulating that padded reflectogram.
-After k-clock resampling or cropping, calibrate from the new frequency step
-and record length instead of reusing the raw-acquisition scale. For a linear
-sweep, cropping to `M` samples gives `fft_dz * N/M`.
+Zero-padding refines further; use the returned `z` spacing and scale the DFT
+span by `n_pad/N` when demodulating. After k-clock resampling or cropping,
+calibrate from the new frequency step and record length. Linear sweep
+cropped to `M` samples: `fft_dz * N/M`.
 
 The nonlinear time warp evaluates the fiber's Fourier sum at warped times,
-using the physical sweep period `T` even when `T*fs` is fractional. It uses
-a separate oversampled grid; see below for accuracy and boundary behavior.
+using the physical period `T` even when `T*fs` is fractional, on a separate
+oversampled grid.
 
 ### Circulator
-3-port scalar model (`optics/components.py`). Signal passes the circulator twice, so `round_trip_transmission = IL^2` in field = `10^(-IL_dB/10)` in power. Isolation (port1->port3 leakage) lands at zero delay as a DC offset riding P(t); return loss is a reflector sitting in the z=0 bin.
+
+The signal passes through the circulator twice (`optics/components.py`).
+For a single-pass loss of `L_dB`, the field factor is `10^(-L_dB/20)` per
+pass and `10^(-L_dB/10)` for the round trip. Squaring the round-trip field
+factor gives the power ratio `10^(-2*L_dB/10)`. A 1 dB loss per pass gives
+a 2 dB power loss over the round trip.
+Isolation (port1->port3 leakage) lands at zero delay as a DC offset riding
+`P(t)`; return loss is a reflector in the z=0 bin. Isolation is a scalar
+number here, no polarization dependence.
 
 ### Laser coherence roll-off
-A finite Lorentzian linewidth `Delta_nu` makes the fringe visibility decay with the round-trip delay:
+
+Finite Lorentzian linewidth `Delta_nu` makes fringe visibility decay with
+round-trip delay:
+
     V(z) = exp(-pi Delta_nu tau),   tau = 2 n z / C
-applied as a z-dependent multiplier on the profile before the IFFT, the IFFT trick carries no explicit reference arm, so the decay is folded in.
 
-The coloured (flicker / random-walk) FM noise instead enters stochastically through the time-warp: for noise slow compared to tau, `phi(t) - phi(t-tau) ~ 2 pi tau nu_noise(t)`, which is exactly the ripple mechanism, so each sweep gets a real phase-noise pedestal. The white FM term is deliberately kept out of the warp -- it decorrelates sample to sample and the small-tau approximation would overshoot its pedestal by ~tau/dt -- so the Lorentzian part appears only as the ensemble-average roll-off above (no stochastic pedestal).
+Applied as a z-dependent multiplier on the profile before the IFFT (no
+explicit reference arm, so the decay is folded in).
 
-Ref: Coupland & Pickering, J. Opt. Soc. Am. A 9, 257 (1992).
+Coloured (flicker / random-walk) FM enters stochastically through the
+time-warp: for noise slow compared to tau,
+`phi(t) - phi(t-tau) ~ 2 pi tau nu_noise(t)`, which is the ripple mechanism,
+so each sweep gets a real phase-noise pedestal. White FM is kept out of the
+warp (it decorrelates sample to sample, and the small-tau approximation would
+overshoot its pedestal by ~tau/dt), so the Lorentzian part appears only as
+the ensemble-average roll-off above.
+
+Coupland & Pickering, J. Opt. Soc. Am. A 9, 257 (1992).
 
 ### Sweep-nonlinearity time-warp
+
 For small round-trip delay `tau`, the frequency deviation `delta_nu(t)` adds
-the beat phase `2*pi*tau*delta_nu(t)`. With nominal chirp rate `gamma`, this
-is equivalent to evaluating the ideal beat at
+beat phase `2*pi*tau*delta_nu(t)`. With nominal chirp rate `gamma` this is
+equivalent to evaluating the ideal beat at
 
     s(t) = t + delta_nu(t)/gamma
     beat(t) = sum_k h[k] exp(2*pi*i*k*s(t)/T)
 
-Here `h` is the fiber profile after attenuation, ghosts and coherence roll-off.
-The deviation includes the polynomial/ripple terms, slow colored FM and the
-equivalent GVD term below. White FM retains its separate coherence treatment.
-This is the forward model; auxiliary-MZI k-clock resampling is a subsequent
-analysis operation that attempts to compensate the nonlinearity.
+`h` is the fiber profile after attenuation, ghosts and coherence roll-off.
+The deviation includes polynomial/ripple, slow colored FM and the equivalent
+GVD term below; white FM keeps its separate coherence treatment. This is the
+forward model; aux-MZI k-clock resampling is a later analysis step that tries
+to compensate.
 
-Linear interpolation on the ADC grid is unsuitable here: a half-sample shift
-attenuates a tone at `0.4*fs` by 10.20 dB. Instead, the implementation centres
-the known Fourier band around zero, evaluates it by IFFT on at least `16*n_z`
-points, and uses a periodic quintic spline before restoring the carrier.
-The centred band has at least 32 samples per fastest cycle. Cores are processed
-one at a time to limit temporary memory; the internal grid scales with the
-fiber size, independently of the ADC sample count.
+Linear interpolation on the ADC grid is a bad idea here: a half-sample shift
+attenuates a tone at `0.4*fs` by 10.20 dB. The implementation centres the
+known Fourier band around zero, evaluates by IFFT on at least `16*n_z`
+points, and uses a periodic quintic spline before restoring the carrier. The
+centred band has at least 32 samples per fastest cycle. Cores processed one
+at a time, internal grid scales with the fiber size, not the ADC count.
 
-The Fourier sum has period `T` in `s`, so evaluation beyond the nominal sweep
-continues that sum rather than clamping to the first or last ADC sample.
-Excursions greater than 5% of `T` still emit a warning. This continuation follows
-the discrete-fiber model; it is not a model of laser reset or flyback.
+The Fourier sum has period `T` in `s`, so evaluation beyond the nominal
+sweep continues the sum rather than clamping to the first or last ADC
+sample. Excursions beyond 5% of `T` still warn. Continuation follows the
+discrete-fiber model; it is not a model of laser reset or flyback.
 
-`tests/test_time_warp_accuracy.py` compares tones and complex multicore profiles
-with direct Fourier sums, including fractional sample counts, sweep boundaries,
-polynomial distortion, ripple, GVD and slow FM. Tone errors are checked against
-`2e-7` of unit field amplitude and profile relative RMS errors against `2e-7`.
-The nominal configuration check covers the linear chirp. Before evaluating
-a warped beat, the main MZI also checks the unwrapped phase increments on
-the actual ADC clock. With `k_max = n_z-1`, the bound is
+`tests/test_time_warp_accuracy.py` compares tones and complex multicore
+profiles with direct Fourier sums, including fractional sample counts, sweep
+boundaries, polynomial distortion, ripple, GVD and slow FM, to `2e-7` of
+unit field amplitude. Before evaluating a warped beat, the main MZI checks
+the unwrapped phase increments on the actual ADC clock. With
+`k_max = n_z-1`,
 
     f_max = k_max/T * max(abs(1 + diff(delta_nu)/(gamma*dt)))
 
 Values at or above `1/(2*dt)` raise `ValueError`, before reducing `s/T`
-modulo one. Both signs and local excursions count; polynomial distortion,
-ripple, GVD and the realized slow FM all enter through `delta_nu`.
-The bound covers the full spatial grid, including ghosts and all cores,
-even when the last bins happen to be zero. A one-bin profile has only DC.
-White FM is excluded consistently with the main-beat model above.
-
-This guards the sampled phase increments, not strict spectral band limitation:
-modulation sidebands and excursions between source samples are not bounded.
-The small-delay approximation remains. FBG carriers share the same phase
-coordinate and are covered by the grid bound; their envelope bandwidth is
-not covered by this guard. Tests in `test_main_nyquist.py` cover both sides of
+modulo one. Both signs and local excursions count. The bound covers the full
+spatial grid, ghosts and all cores, even when the last bins are zero. This
+guards the sampled phase increments; sidebands and excursions between source
+samples are not bounded. `test_main_nyquist.py` covers both sides of
 Nyquist, short fast ripple, dispersion, local slow-FM excursions and the
 unchanged direct Fourier sum below the limit.
 
 ### Chromatic dispersion (GVD)
-Group-velocity dispersion enters through `beta2 = -lambda^2 D/(2 pi c)`.
-It adds `4 pi^2 beta2 gamma^2 z (t - T/2)^2` to the beat phase, which factors as `z K(t)`, so it rides the same time-warp engine with an extra 
+
+`beta2 = -lambda^2 D/(2 pi c)`. It adds
+`4 pi^2 beta2 gamma^2 z (t - T/2)^2` to the beat phase, which factors as
+`z K(t)`, so it rides the time-warp engine with
+
     delta_nu = pi beta2 gamma^2 (c/n) (t - T/2)^2
-The warp itself is z-independent; the z-dependent peak broadening then falls out of the FFT (a chirp in time spreads in frequency). Only D / beta2 is modelled, third-order dispersion isn't (#34).
+
+Warp is z-independent; the z-dependent broadening falls out of the FFT (a
+chirp in time spreads in frequency). Only `D` / `beta2` is modelled.
 
 ### Aux MZI and k-clock
-An auxiliary MZI with a known delay tau, fed by the same swept laser (`optics/aux_mzi.py`):
+
+Aux MZI with known delay tau, fed by the same laser (`optics/aux_mzi.py`):
+
     I_aux(t) = cos(phi(t) - phi(t - tau)) = cos(2 pi integral_{t-tau}^t nu du)
-For a linear chirp it's a clean sine at `gamma tau`. When the sweep wobbles I_aux wobbles with it, so its unwrapped Hilbert phase is a monotone function of nu(t). `analysis.demodulation.kclock_resample` uses it as a clock to resample the main beat onto a uniform-nu grid, undoing the sweep nonlinearity before the FFT. The first `round(tau/dt)` samples are invalid, and non-monotone phase samples are dropped before `np.interp` (#64).
 
-The implementation uses the integer lag `n_tau = round(tau/dt)`, so its
-effective delay is `n_tau*dt`. Configuration validation requires the nominal
-beat `gamma*n_tau*dt < fs/2`. At runtime, before forming the cosine, it checks
-`max(abs(nu_inst[j] - nu_inst[j-n_tau])) < fs/2` for `j >= n_tau`.
-This difference is the phase increment divided by `2*pi*dt` for the rectangle
-integration used here. Checking the unwrapped frequency difference avoids
-mistaking an already aliased tone for a valid low-frequency clock. Both signs
-and local excursions are checked, including the realized laser frequency noise.
-The delay must leave at least two valid samples to define the mean beat.
+Linear chirp: clean sine at `gamma tau`. When the sweep wobbles, I_aux
+wobbles with it, so the unwrapped Hilbert phase is monotone in nu(t).
+`analysis.demodulation.kclock_resample` uses it to resample the main beat
+onto a uniform-nu grid before the FFT. First `round(tau/dt)` samples invalid,
+non-monotone phase samples dropped before `np.interp` (#64).
+Parasitic reflections can distort the clock in a real instrument. The simulated
+auxiliary MZI has a single delay and no parasitic paths.
 
-This is a sampling guard on the modeled frequency trace, not a guarantee of
-strict spectral band limitation: modulation sidebands and any variation
-between source samples are not bounded by this check. It also does not ensure
-monotone k-clock phase; the resampling checks still apply.
+Integer lag `n_tau = round(tau/dt)`, effective delay `n_tau*dt`. Validation
+requires `gamma*n_tau*dt < fs/2`. At runtime, before forming the cosine,
+the code checks `max(abs(nu_inst[j] - nu_inst[j-n_tau])) < fs/2` for
+`j >= n_tau`; this is the phase increment divided by `2*pi*dt` for the
+rectangle integration. Checking the unwrapped frequency difference avoids
+mistaking an already aliased tone for a valid low-frequency clock. Both
+signs and local excursions are checked, including the realized laser
+frequency noise. The delay must leave at least two valid samples.
 
-Ref: Glombitza & Brinkmeyer, J. Lightwave Technol. 11, 1377 (1993).
+Glombitza & Brinkmeyer, J. Lightwave Technol. 11, 1377 (1993).
 
 ## Detection
 `detection/detector.py` and `detection/filter.py`.
