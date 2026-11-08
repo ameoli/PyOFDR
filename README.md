@@ -2,7 +2,6 @@
 [![Tests](https://github.com/ameoli/PyOFDR/actions/workflows/tests.yml/badge.svg)](https://github.com/ameoli/PyOFDR/actions/workflows/tests.yml)
 ![license](https://img.shields.io/github/license/ameoli/PyOFDR)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
-![status](https://img.shields.io/badge/status-alpha-orange)
 
 PyOFDR simulates optical frequency domain reflectometry (OFDR) in Python. Give it a fiber, a laser sweep and a receiver. It returns the digitized beat signal for each fiber core. You can use these traces to check a strain recovery algorithm against a known input, study receiver noise or try different sweep and sampling settings.
 
@@ -12,7 +11,7 @@ PyOFDR simulates optical frequency domain reflectometry (OFDR) in Python. Give i
 
 ## Status
 
-PyOFDR is in alpha (`0.9.0a0`). It runs on the NumPy backend and requires Python 3.10 or later. CI runs on Windows and Ubuntu with Python 3.10, 3.11 and 3.12. The [pipeline validation section](docs/theory.md#pipeline-level-validation) gives the tested cases and their numerical tolerances.
+PyOFDR runs on the NumPy backend and requires Python 3.10 or later. CI runs on Windows and Ubuntu with Python 3.10, 3.11 and 3.12. The [pipeline validation section](docs/theory.md#pipeline-level-validation) gives the tested cases and their numerical tolerances.
 
 ## What's simulated
 | Stage | Modelled |
@@ -29,7 +28,9 @@ For equations and model limits, see the [theory guide](docs/theory.md). The [con
 
 ## Install
 
-Clone the repository and create a virtual environment.
+To install the published package from PyPI, run `python -m pip install pyofdr` in a virtual environment.
+
+For the basic YAML configuration, notebooks and tests, clone the repository and create a virtual environment.
 
 ```bash
 git clone https://github.com/ameoli/PyOFDR.git
@@ -117,3 +118,5 @@ The laser noise generator uses [colorednoise](https://github.com/felixpatzelt/co
 
 ## Issues and contributions
 Report bugs and feature requests in [GitHub Issues](https://github.com/ameoli/PyOFDR/issues). For simulation bugs, include the YAML configuration and the command that reproduces the problem. Pull requests are welcome.
+
+Maintainers can follow the [release instructions](docs/releasing.md) to publish a tagged version on PyPI.
