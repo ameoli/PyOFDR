@@ -511,92 +511,100 @@ frequency noise. The delay must leave at least two valid samples.
 Glombitza & Brinkmeyer, J. Lightwave Technol. 11, 1377 (1993).
 
 ## Detection
-`detection/detector.py` and `detection/filter.py`.
+
+`detection/detector.py`, `detection/filter.py`.
 
 ### Photodetection
-Current is responsivity times optical power, `I(t) = R P_opt(t)`, with R in A/W (typ. 1.0 for InGaAs at 1550 nm).
+
+`I(t) = R P_opt(t)`, R in A/W, typically 1.0 for InGaAs at 1550 nm.
+Responsivity is assumed flat over the sweep; no wavelength dependence.
 
 ### Saturation
-`saturation_current` is a positive, finite limit on the total current of each
-photodiode, including the reference-arm DC. It is applied before balanced
-subtraction or removal of the static operating-point current. With
-`F(x) = x + sum(a_k*x^k)` for the optional polynomial and
-`G(x) = clip(F(x), 0, I_sat)`, the noiseless outputs are
+
+The model is a static hard clip, not a prediction of noise or recovery
+dynamics of a saturated device.
+`saturation_current` is a positive finite limit on the total current of each photodiode, including
+reference-arm DC, applied before balanced subtraction or removal of the
+static operating point. With `F(x) = x + sum(a_k*x^k)` and
+`G(x) = clip(F(x), 0, I_sat)`:
 
     single-ended: G(I_dc_pd + I_beat) - G(I_dc_pd)
     balanced:     G(I_dc_pd + I_beat/2) - G(I_dc_pd - I_beat/2)
 
-Thus a small beat can be lost when the DC alone saturates both diodes. The
-polynomial is applied before clipping, so it cannot exceed the per-diode
-limit. Samples without clipping retain the existing small-signal calculation
-to avoid cancellation when subtracting large DC terms. Static-baseline removal
-is not a model of an AC-coupling filter's frequency response.
+A small beat can get lost when the DC alone saturates both diodes. The
+polynomial is applied before clipping. Samples without clipping keep the
+small-signal calculation, to avoid cancellation when subtracting large DC
+terms.
 
-Shot, thermal and dark noise are added afterwards. The shot-noise variance
-is `2*e*I_collected*B` per diode. The model takes the nonnegative part of
-the total current after the polynomial and any clipping, before removing
-the baseline or subtracting the two diode signals. Independent diode noise
-contributions add in variance, even if their mean difference is zero. Thermal
-and dark noise retain their existing models and are not clipped by this limit.
-
-This is a static hard-clipping model with a Gaussian mean-current estimate for
-shot noise, not a prediction of noise or recovery dynamics of a saturated
-device. The DC estimate remains `R*eta*source.power/2`; reference-arm RIN and
-envelope variations are not propagated into that operating point. A TIA
-output-voltage limit is a separate effect. `tests/test_detector_saturation.py`
-checks one/both saturated diodes, polynomial composition, noise variance,
-configuration bounds and end-to-end output.
+Shot, thermal and dark noise added afterwards. Shot variance
+`2*e*I_collected*B` per diode, taking the nonnegative part of the total
+current after polynomial and clipping, before baseline removal or
+subtraction. Independent diode contributions add in variance even if their
+mean difference is zero. Thermal and dark keep their models and are not
+clipped by this limit. DC estimate stays `R*eta*source.power/2`;
+reference-arm RIN and envelope variations are not propagated into the
+operating point. `tests/test_detector_saturation.py` covers one or both
+saturated diodes, polynomial composition, noise variance, configuration
+bounds, end-to-end output.
 
 ### Electronic noise
+
 Independent gaussians:
 
-- reference current per photodiode: `I_dc_pd = R eta P_laser / 2`, including the 50/50 recombiner,
-- single-ended shot: use the diode response at `I_dc_pd + I_beat`,
-- balanced shot: add the independent variances from the diode responses at
-  `I_dc_pd + I_beat/2` and `I_dc_pd - I_beat/2`,
-- thermal / NEP: `sigma = R NEP sqrt(B)`, NEP in W/sqrt(Hz),
-- dark current: variance `2 e I_dark B` per photodiode, doubled in balanced mode.
+- reference current per photodiode `I_dc_pd = R eta P_laser / 2`, including
+  the 50/50 recombiner;
+- single-ended shot at `I_dc_pd + I_beat`;
+- balanced shot from the independent variances at `I_dc_pd + I_beat/2` and
+  `I_dc_pd - I_beat/2`;
+- thermal / NEP `sigma = R NEP sqrt(B)`, NEP in W/sqrt(Hz);
+- dark current variance `2 e I_dark B` per photodiode, doubled in balanced
+  mode.
 
-`B = fs/2` (sampling Nyquist band) at noise-generation time;
-the anti-alias filter then trims the useful band.
+`B = fs/2` at generation time; the anti-alias filter trims the useful band.
 
 ### Balanced detection
+
 Two photodiodes on complementary arms:
+
     I_a = I_dc_pd + I_beat/2 + noise_a
     I_b = I_dc_pd - I_beat/2 + noise_b
     I_out = I_a - I_b = I_beat + noise_a - noise_b
-DC cancels and the independent shot and dark variances add. One TIA after
-the subtraction node supplies the thermal contribution; it is not doubled.
-The current implementation feeds the same stored MZI beat amplitude to both
-receiver modes. Toggling `balanced` therefore changes the noise and nonlinear
-response, but does not itself implement a physical single-port/full-difference
-signal-amplitude conversion or guarantee a 3 dB SNR improvement.
 
-Source RIN multiplies that beat in both modes. The reference-arm DC intensity
-fluctuations and finite common-mode rejection are not propagated. Consequently,
-`I_dc_pd * sqrt(RIN * B)` is not the simulated RIN floor. In the linear, weak-RIN
-regime it is `I_beat_rms * sqrt(RIN * B)`, including any optical leakage in
-`I_beat_rms`. Use RMS before filtering, without subtracting the mean.
+DC cancels, independent shot and dark variances add. One TIA after the
+subtraction node supplies the thermal contribution, not doubled. The current
+implementation feeds the same stored MZI beat amplitude to both receiver
+modes, so toggling `balanced` changes noise and nonlinear response but does
+not itself implement a physical single-port/full-difference conversion or
+guarantee 3 dB SNR improvement.
+
+Source RIN multiplies the beat in both modes. Reference-arm DC intensity
+fluctuations and finite common-mode rejection are not propagated, so
+`I_dc_pd * sqrt(RIN * B)` is not the simulated RIN floor. In the linear
+weak-RIN regime it is `I_beat_rms * sqrt(RIN * B)`, including any optical
+leakage in `I_beat_rms`. Use RMS before filtering, without subtracting the
+mean.
 
 ### Anti-alias filter
-Butterworth low-pass (configurable order, typ. 4), implemented as second-order sections for stability, cutoff clipped to `0.99 fs/2`
-(`detection/filter.py`).
-The settled output variance of white noise with one-sided PSD `S` is
-`S * B_noise`, where `B_noise = integral_0^(fs/2) |H(f)|^2 df`. This equivalent
-noise bandwidth depends on order and sample rate as well as cutoff; it is not
-generally equal to the configured cutoff. The budget integrates the digital
-Butterworth response with the same cutoff clamp. Filter startup transients
-are excluded from its estimates.
+
+Butterworth low-pass, configurable order (typically 4), second-order
+sections, cutoff clipped to `0.99 fs/2` (`detection/filter.py`). Settled
+output variance for white noise with one-sided PSD `S`:
+`S * B_noise`, `B_noise = integral_0^(fs/2) |H(f)|^2 df`. Equivalent noise
+bandwidth depends on order and sample rate as well as cutoff. The budget
+integrates the digital response with the same clamp. Filter startup
+transients are excluded from the estimates.
 
 ### Photodiode nonlinearity
-A pre-TIA polynomial of order >= 2,
+
+Pre-TIA polynomial of order >= 2:
+
     I_out = I_in + sum_{k>=2} a_k I_in^k
-In balanced mode it acts per arm (`I_A = I_dc_pd + I_beat/2`,
-`I_B = I_dc_pd - I_beat/2`), then the outputs are differenced. In single-ended
-mode the polynomial is evaluated at `I_dc_pd + I_beat` and its static value
-at `I_dc_pd` is subtracted. Both modes retain the DC/beat mixing terms.
-When a saturation limit is also configured, each polynomial output (including
-the static single-ended baseline) is clipped as described above.
+
+Balanced: acts per arm (`I_A = I_dc_pd + I_beat/2`, `I_B = I_dc_pd -
+I_beat/2`), then outputs differenced. Single-ended: evaluated at
+`I_dc_pd + I_beat`, static value at `I_dc_pd` subtracted. Both modes retain
+DC/beat mixing. With a saturation limit also configured, each polynomial
+output (including the static single-ended baseline) is clipped as above.
 
 ## ADC
 `digitizer/adc.py`.
