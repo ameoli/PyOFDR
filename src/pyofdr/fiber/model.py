@@ -1,9 +1,15 @@
 """Build PyRayleigh objects from the validated PyOFDR configuration."""
 
-from pyrayleigh import GuideOptics, Section
+from dataclasses import replace
+
+import numpy as np
+
+from pyrayleigh import GuideOptics, Section, lossless_reflector
 from pyrayleigh.backends import real_arrays
 from pyrayleigh.units import (attenuation_from_db_per_km, db_to_linear,
                              dispersion_to_gvd_at_wavelength, wavelength_to_frequency)
+
+from pyofdr.utils.seeding import derive_seed
 
 
 def build_guide(config, *, xp=None):
@@ -56,3 +62,20 @@ def build_sections(config, guide, *, xp=None):
         sections.append(Section(start, end, guide, attenuation_from_db_per_km(loss, xp=xp),
                                 db_to_linear(rate, xp=xp)))
     return tuple(sections)
+
+
+def build_reflectors(config, core=0, *, xp=None):
+    """Point coefficients at configured positions, with input-side insertion loss."""
+    reflectors = sorted(config["fiber"]["reflectors"], key=lambda item: item["z"])
+    xp, _ = real_arrays(*(value for item in reflectors for value in (item["R"], item["loss_dB"])), xp=xp)
+    seed = derive_seed(config["simulation"]["seed"], component="reflectors", core=core)
+    rng = np.random.Generator(np.random.PCG64(seed))
+    phases = xp.asarray(rng.uniform(0., 2.*np.pi, len(reflectors)), dtype=xp.float64)
+    elements = []
+    for index, item in enumerate(reflectors):
+        point = lossless_reflector(item["z"], item["R"], phases[index], xp=xp)
+        q = xp.sqrt(db_to_linear(-item["loss_dB"], xp=xp))
+        elements.append(replace(point, r_left=point.r_left*q*q,
+                                 t_left_to_right=point.t_left_to_right*q,
+                                 t_right_to_left=point.t_right_to_left*q))
+    return tuple(elements)
