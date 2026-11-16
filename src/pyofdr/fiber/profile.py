@@ -12,7 +12,7 @@ from pyofdr.fiber.attenuation import (
 )
 from pyofdr.fiber.bends import bend_loss_total_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
-from pyofdr.fiber.index import index_samples_from_normals
+from pyofdr.fiber.index import index_samples_from_normals, index_samples_from_segments
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.phase import phase_at_bins
 from pyofdr.fiber.reflectors import (apply_connector_losses, inject_reflectors,
@@ -127,10 +127,7 @@ class FiberGenerator(PipelineStep):
         # treatment is the rest of #33).
         delta_n = None
         if self.index_segments:
-            delta_n = xp.zeros(n_z)
-            for seg in self.index_segments:
-                mask = (z >= seg["start"]) & (z < seg["end"])
-                delta_n = xp.where(mask, delta_n + seg["delta_n"], delta_n)
+            delta_n = index_samples_from_segments(self.index_segments, z)
 
         if (self.index_fluctuations is not None
                 and self.index_fluctuations["sigma"] > 0):

@@ -2,8 +2,21 @@
 
 import numpy as np
 
-from pyrayleigh import ornstein_uhlenbeck_index_from_normals
+from pyrayleigh import index_segments_profile, ornstein_uhlenbeck_index_from_normals
 from pyrayleigh.backends import real_arrays
+
+
+def index_samples_from_segments(segments, z, *, xp=None):
+    """Sum static index changes on half-open intervals, clipped at the fiber input."""
+    xp, values = real_arrays(z, *(segment["delta_n"] for segment in segments),
+                             xp=None if xp is np else xp)
+    intervals = []
+    for segment in segments:
+        start = max(0., segment["start"])
+        if segment["end"] > start:
+            intervals.append((start, segment["end"], segment["delta_n"]))
+    profile = index_segments_profile(intervals, xp=xp)
+    return profile.value(values[0], xp=xp)
 
 
 def index_samples_from_normals(normals, dz, sigma, correlation_length, *, xp=None):
