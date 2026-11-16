@@ -4,7 +4,8 @@ from dataclasses import replace
 
 import numpy as np
 
-from pyrayleigh import (Fiber, GuideOptics, MultiCoreFiber, Section, WeakFBG,
+from pyrayleigh import (Fiber, FiberState, Field, FieldTerm, GuideOptics, MultiCoreFiber,
+                        Section, SpatialProfile, WeakFBG,
                         index_segments_profile, lossless_reflector,
                         ornstein_uhlenbeck_index_profile)
 from pyrayleigh.backends import real_arrays
@@ -184,3 +185,37 @@ def build_fiber(config, *, cell_length, reference_temperature, frequency_min, fr
     order = 1 if multiple is None else multiple["max_order"]
     return fiber.with_crosstalk(seed, coupling["xt_dB_per_km"], topology=coupling["topology"],
                                 max_order=order, xp=xp)
+
+
+def build_state(config, cell_edges, mechanical_strain=None, temperature_change=None, *, xp):
+    """Freeze sampled fields on fixed cells; inputs are scalars or one value per cell.
+
+    Strain is mechanical and temperature is a change [K]. The last cell's
+    value is kept at the end face, as in PyOFDR's grating lookup.
+    """
+    edges = np.asarray(cell_edges)
+    if edges.dtype.kind not in "iuf":
+        raise TypeError("cell edges must contain fixed real numbers")
+    edges = edges.astype(np.float64, copy=False)
+    if (edges.ndim != 1 or len(edges) < 2 or not np.all(np.isfinite(edges))
+            or np.any(np.diff(edges) <= 0.)):
+        raise ValueError("cell edges must be a strictly increasing finite vector")
+    if edges[0] != 0. or edges[-1] != config["fiber"]["length"]:
+        raise ValueError("cell edges must cover the configured fiber")
+    xp, (mechanical, temperature, alpha) = real_arrays(
+        0. if mechanical_strain is None else mechanical_strain,
+        0. if temperature_change is None else temperature_change,
+        config["temperature"]["thermal_expansion"], xp=xp)
+    count = len(edges) - 1
+    if alpha.ndim != 0:
+        raise ValueError("thermal expansion must be a scalar")
+    for value in (mechanical, temperature):
+        if value.ndim != 0 and value.shape != (count,):
+            raise ValueError("fields must be scalars or have one value per cell")
+    positions = np.repeat(edges, 2)[1:-1]
+    fields = []
+    for value in (mechanical + alpha*temperature, temperature):
+        value = xp.broadcast_to(value, (count,))
+        samples = xp.reshape(xp.stack((value, value), axis=1), (-1,))
+        fields.append(Field((FieldTerm(SpatialProfile(positions, samples)),)))
+    return FiberState(axial_strain=fields[0], temperature_change=fields[1])
