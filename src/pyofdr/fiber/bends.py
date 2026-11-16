@@ -23,135 +23,103 @@ Three ways to get the loss of a bent section (picked per-bend via the
   1.28 for silica; use 1.0 for the uncorrected formula.
 
 No transition loss, coating reflections or bend-induced birefringence (#57).
+NumPy calls keep validation errors and table-range warnings. Native parameters
+follow PyRayleigh's domain rules; unsupported Marcuse modes return NaN.
 """
 
 from __future__ import annotations
 
-import math
 import warnings
 
 import numpy as np
-from scipy.optimize import brentq
-from scipy.special import j0, j1, k0, k1
+from pyrayleigh.backends import real_arrays
+from pyrayleigh.modes import (exponential_bend_loss_db, marcuse_bend_loss_db,
+                              solve_lp01_mode, tabulated_bend_loss_db)
+from pyrayleigh.units import wavelength_to_frequency
 
 
-_LP11_CUTOFF = 2.404825557695773
+def _scalar_arrays(*values, xp=None):
+    xp, values = real_arrays(*values, xp=None if xp is np else xp)
+    if any(value.ndim != 0 for value in values):
+        raise ValueError("bend parameters must be scalars")
+    return xp, values
 
 
-def lp01_mode(core_radius, core_index, cladding_index, wavelength):
+def lp01_mode(core_radius, core_index, cladding_index, wavelength, *, xp=None):
     """Return (U, W, beta) for the straight step-index fiber.
 
     Lengths are in metres, beta in rad/m. Both indices are phase indices.
     Only the single-mode, weak-guidance regime is supported here.
     """
-    if any(not math.isfinite(x) or x <= 0 for x in
-           (core_radius, core_index, cladding_index, wavelength)):
+    xp, values = _scalar_arrays(core_radius, core_index, cladding_index, wavelength, xp=xp)
+    core_radius, core_index, cladding_index, wavelength = values
+    if isinstance(wavelength, np.ndarray) and any(not np.isfinite(value) or value <= 0. for value in values):
         raise ValueError("Marcuse fiber parameters must be finite and positive")
-    if not core_index > cladding_index >= 1.0:
-        raise ValueError("Marcuse needs core_index > cladding_index >= 1")
-    index_difference = (core_index - cladding_index) * (core_index + cladding_index)
-    delta = 0.5 * ((core_index - cladding_index) / core_index) * (1.0 + cladding_index / core_index)
-    if delta > 0.01:
-        raise ValueError("Marcuse weak-guidance model requires delta <= 0.01")
-    wave_number = 2.0 * math.pi / wavelength
-    V = wave_number * core_radius * math.sqrt(index_difference)
-    if not math.isfinite(V) or not 0 < V < _LP11_CUTOFF:
-        raise ValueError("Marcuse single-mode model requires 0 < V < 2.4048255577")
-
-    def residual(log_w):
-        w = math.exp(log_w)
-        u = math.sqrt(max(0.0, (V - w) * (V + w)))
-        return u * j1(u) / j0(u) - w * k1(w) / k0(w)
-
-    # Solving in log(W) also resolves weakly confined modes with W << V.
-    lower = -300.0
-    if math.log(V) <= lower or residual(lower) <= 0:
-        raise ValueError("LP01 confinement is too weak for this numerical solver")
-    log_w = brentq(residual, lower, math.log(V), xtol=1e-12)
-    w = math.exp(log_w)
-    u = math.sqrt((V - w) * (V + w))
-    beta = math.hypot(wave_number * cladding_index, w / core_radius)
-    return u, w, beta
+    frequency = wavelength_to_frequency(wavelength, xp=xp)
+    mode = solve_lp01_mode(frequency, core_radius, core_index, cladding_index, xp=xp)
+    if isinstance(mode.U, np.ndarray) and not np.isfinite(mode.U):
+        raise ValueError("LP01 parameters or confinement are outside the supported range")
+    return mode.U, mode.W, mode.propagation_constant
 
 
 def marcuse_bend_loss_dB(radius, turns, wavelength, core_radius,
-                         core_index, cladding_index, radius_correction=1.28):
+                         core_index, cladding_index, radius_correction=1.28, *, xp=None):
     """One-way loss [dB] from Marcuse's LP01 curvature formula.
 
     R_eff changes the radiation coefficient, not the physical arc length.
     The returned loss uses 2*pi*radius*turns. See docs/theory.md for the
     power/field convention and the assumptions behind this approximation.
     """
-    if any(not math.isfinite(x) or x <= 0 for x in
-           (radius, turns, radius_correction)):
-        raise ValueError("Marcuse radius, turns and correction must be finite and positive")
-    u, w, beta = lp01_mode(core_radius, core_index, cladding_index, wavelength)
-    if radius <= core_radius:
-        raise ValueError("Marcuse bend radius must exceed the core radius")
-    effective_radius = radius * radius_correction
-    if not math.isfinite(effective_radius) or effective_radius <= core_radius:
-        raise ValueError("Marcuse effective radius must be finite and exceed the core radius")
-    V = math.hypot(u, w)
-    kappa = u / core_radius
-    gamma = w / core_radius
-
-    # This is 2*alpha, the power decay coefficient [1/m], evaluated in log form.
-    exponent = (2.0 / 3.0) * (gamma / beta)**2 * gamma * effective_radius
-    log_rate = (0.5 * math.log(math.pi) + 2.0 * math.log(kappa)
-                - math.log(2.0) - 1.5 * math.log(gamma) - 2.0 * math.log(V)
-                - 0.5 * math.log(effective_radius) - 2.0 * math.log(k1(w))
-                - exponent)
-    log_loss = (log_rate + math.log(10.0 / math.log(10.0))
-                + math.log(2.0 * math.pi) + math.log(radius) + math.log(turns))
-    try:
-        loss = math.exp(log_loss)
-    except OverflowError as exc:
-        raise ValueError("Marcuse loss is too large to represent") from exc
-    if not math.isfinite(loss):
-        raise ValueError("Marcuse loss is outside the numerical range")
+    xp, values = _scalar_arrays(radius, turns, wavelength, core_radius, core_index,
+                                cladding_index, radius_correction, xp=xp)
+    with np.errstate(over="ignore"):
+        loss = marcuse_bend_loss_db(*values, xp=xp)
+    if isinstance(loss, np.ndarray) and not np.isfinite(loss):
+        raise ValueError("Marcuse parameters or loss are outside the supported range")
     return loss
 
 
-def bend_loss_dB(radius, turns, A_dB_per_turn=100.0, R_c=5e-3):
+def bend_loss_dB(radius, turns, A_dB_per_turn=100.0, R_c=5e-3, *, xp=None):
     """Total macrobending loss across a bent section [dB].
 
     radius, R_c in metres. turns is unitless (can be fractional).
     """
-    if radius <= 0:
+    xp, values = _scalar_arrays(radius, turns, A_dB_per_turn, R_c, xp=xp)
+    if isinstance(values[0], np.ndarray) and values[0] <= 0:
         raise ValueError("bend radius must be > 0")
-    per_turn = A_dB_per_turn * math.exp(-radius / R_c)
-    return per_turn * turns
+    return exponential_bend_loss_db(*values, xp=xp)
 
 
-def tabulated_bend_loss_dB(radius, turns, table):
+def tabulated_bend_loss_dB(radius, turns, table, *, xp=None):
     """Total loss [dB] interpolated from (radius, dB_per_turn) points.
 
     Outside the table range the end values are clamped (with a warning),
     no exponential extrapolation into the unknown.
     """
-    if radius <= 0:
-        raise ValueError("bend radius must be > 0")
     pts = sorted(table, key=lambda p: p["radius"])
-    radii   = np.array([p["radius"] for p in pts])
-    logloss = np.log([p["dB_per_turn"] for p in pts])
-    if radius < radii[0] or radius > radii[-1]:
-        warnings.warn(f"bend radius {radius:g} m outside table range "
-                      f"[{radii[0]:g}, {radii[-1]:g}] m, clamping to the edge")
-    per_turn = float(np.exp(np.interp(radius, radii, logloss)))
-    return per_turn * turns
+    radii = [p["radius"] for p in pts]
+    xp, values = _scalar_arrays(radius, turns, *(p["dB_per_turn"] for p in pts), xp=xp)
+    radius, turns = values[:2]
+    if isinstance(radius, np.ndarray):
+        if radius <= 0:
+            raise ValueError("bend radius must be > 0")
+        if radius < radii[0] or radius > radii[-1]:
+            warnings.warn(f"bend radius {radius:g} m outside table range "
+                          f"[{radii[0]:g}, {radii[-1]:g}] m, clamping to the edge")
+    return tabulated_bend_loss_db(radius, turns, radii, xp.stack(values[2:]), xp=xp)
 
 
-def bend_loss_total_dB(bend, wavelength=None):
+def bend_loss_total_dB(bend, wavelength=None, *, xp=None):
     """Dispatch on bend['model'] (dict straight from the validated config)."""
     model = bend.get("model", "exponential")
     if model == "marcuse":
         if wavelength is None:
             raise ValueError("the Marcuse bend model needs the source wavelength")
         return marcuse_bend_loss_dB(bend["radius"], bend["turns"], wavelength,
-                                    **bend["marcuse"])
+                                    **bend["marcuse"], xp=xp)
     if model == "tabulated":
-        return tabulated_bend_loss_dB(bend["radius"], bend["turns"], bend["table"])
+        return tabulated_bend_loss_dB(bend["radius"], bend["turns"], bend["table"], xp=xp)
     if model != "exponential":
         raise ValueError(f"unknown bend model: {model!r}")
     return bend_loss_dB(bend["radius"], bend["turns"],
-                        bend["A_dB_per_turn"], bend["R_c"])
+                        bend["A_dB_per_turn"], bend["R_c"], xp=xp)
