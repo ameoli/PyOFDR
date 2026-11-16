@@ -6,6 +6,8 @@ import numpy as np
 
 from pyrayleigh import GuideOptics, Section, WeakFBG, lossless_reflector
 from pyrayleigh.backends import real_arrays
+from pyrayleigh.modes import (attenuation_from_loss_db, exponential_bend_loss_db,
+                              marcuse_bend_loss_db, tabulated_bend_loss_db)
 from pyrayleigh.units import (attenuation_from_db_per_km, db_to_linear,
                              dispersion_to_gvd_at_wavelength, wavelength_to_frequency)
 
@@ -34,18 +36,43 @@ def build_guide(config, *, xp=None):
     )
 
 
+def _bend_loss(bend, wavelength, *, xp):
+    if bend["model"] == "exponential":
+        return exponential_bend_loss_db(bend["radius"], bend["turns"],
+                                        bend["A_dB_per_turn"], bend["R_c"], xp=xp)
+    if bend["model"] == "tabulated":
+        radii = [point["radius"] for point in bend["table"]]
+        losses = xp.stack([xp.asarray(point["dB_per_turn"], dtype=xp.float64)
+                           for point in bend["table"]])
+        return tabulated_bend_loss_db(bend["radius"], bend["turns"], radii, losses, xp=xp)
+    if bend["model"] == "marcuse":
+        return marcuse_bend_loss_db(bend["radius"], bend["turns"], wavelength,
+                                    **bend["marcuse"], xp=xp)
+    raise ValueError(f"unknown bend model: {bend['model']!r}")
+
+
 def build_sections(config, guide, *, xp=None):
-    """Split distributed loss and Rayleigh segments; the last override wins."""
+    """Last loss/Rayleigh override wins; bends add at the source wavelength."""
     fiber = config["fiber"]
     attenuation = fiber["attenuation_segments"]
     rayleigh = fiber["rayleigh_segments"]
+    bends = fiber["bends"]
     parameters = [guide.frequency_ref, fiber["attenuation_dB_per_km"], fiber["rayleigh_coefficient_dB"]]
     parameters.extend(segment["attenuation_dB_per_km"] for segment in attenuation)
     parameters.extend(segment["rayleigh_coefficient_dB"] for segment in rayleigh)
+    parameters.append(config["source"]["center_wavelength"])
+    for bend in bends:
+        parameters.extend((bend["radius"], bend["turns"], bend["A_dB_per_turn"], bend["R_c"]))
+        if bend["table"] is not None:
+            parameters.extend(point["dB_per_turn"] for point in bend["table"])
+        if bend["marcuse"] is not None:
+            parameters.extend(bend["marcuse"].values())
     xp, _ = real_arrays(*parameters, xp=xp)
+    bend_rates = [attenuation_from_loss_db(_bend_loss(bend, config["source"]["center_wavelength"], xp=xp),
+                                          bend["end"] - bend["start"], xp=xp) for bend in bends]
     length = fiber["length"]
     boundaries = {0., length}
-    for segment in (*attenuation, *rayleigh):
+    for segment in (*attenuation, *rayleigh, *bends):
         boundaries.add(max(0., min(length, segment["start"])))
         boundaries.add(max(0., min(length, segment["end"])))
     boundaries = sorted(boundaries)
@@ -59,7 +86,11 @@ def build_sections(config, guide, *, xp=None):
         for segment in rayleigh:
             if segment["start"] <= start < segment["end"]:
                 rate = segment["rayleigh_coefficient_dB"]
-        sections.append(Section(start, end, guide, attenuation_from_db_per_km(loss, xp=xp),
+        alpha = attenuation_from_db_per_km(loss, xp=xp)
+        for bend, coefficient in zip(bends, bend_rates):
+            if bend["start"] <= start < bend["end"]:
+                alpha = alpha + coefficient
+        sections.append(Section(start, end, guide, alpha,
                                 db_to_linear(rate, xp=xp)))
     return tuple(sections)
 
