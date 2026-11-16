@@ -4,7 +4,8 @@ from dataclasses import replace
 
 import numpy as np
 
-from pyrayleigh import GuideOptics, Section, WeakFBG, lossless_reflector
+from pyrayleigh import (GuideOptics, Section, WeakFBG, index_segments_profile, lossless_reflector,
+                        ornstein_uhlenbeck_index_profile)
 from pyrayleigh.backends import real_arrays
 from pyrayleigh.modes import (attenuation_from_loss_db, exponential_bend_loss_db,
                               marcuse_bend_loss_db, tabulated_bend_loss_db)
@@ -122,3 +123,28 @@ def build_fbgs(config, *, xp=None):
         wavelength, length, reflectivity = values[3*index:3*index + 3]
         elements.append(WeakFBG(item["z"], wavelength, length, reflectivity))
     return tuple(elements)
+
+
+def build_index_profile(config, cell_length, *, xp=None):
+    """Static delta n, with OU samples held constant over the fixed cells."""
+    fiber = config["fiber"]
+    segments = []
+    for item in fiber["index_segments"]:
+        start = max(0., min(fiber["length"], item["start"]))
+        end = max(0., min(fiber["length"], item["end"]))
+        if end > start:
+            segments.append((start, end, item["delta_n"]))
+    fluctuations = fiber["index_fluctuations"]
+    parameters = [value for _, _, value in segments]
+    if fluctuations is not None:
+        parameters.extend((fluctuations["sigma"], fluctuations["correlation_length"]))
+    xp, _ = real_arrays(*parameters, xp=xp)
+    if fluctuations is not None:
+        seed = derive_seed(config["simulation"]["seed"], component="index_fluctuations")
+        sample = ornstein_uhlenbeck_index_profile(
+            fiber["length"], fluctuations["sigma"], fluctuations["correlation_length"],
+            cell_length, seed, xp=xp)
+        # Keep left-cell values; the last OU knot only closes the fiber interval.
+        segments.extend((sample.positions[index], sample.positions[index + 1], sample.values[index])
+                        for index in range(len(sample.positions) - 1))
+    return index_segments_profile(segments, xp=xp)
