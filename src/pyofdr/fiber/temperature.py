@@ -30,11 +30,28 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import numpy as np
+
+from pyrayleigh import SpatialProfile
+from pyrayleigh.backends import real_arrays
+
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config import sweep_period
 from pyofdr.core.pipeline import PipelineStep
 from pyofdr.fiber.phase import phase_at_bins
 from pyofdr.strain_transfer.motions import check_motion_sampling, evaluate_motion
+
+
+def temperature_samples_from_segments(segments, z, *, xp=None):
+    """Sum temperature changes [K] on closed intervals of the fixed spatial grid."""
+    xp, values = real_arrays(z, *(seg["delta_T"] for seg in segments),
+                             xp=None if xp is np else xp)
+    z = values[0]
+    dT = xp.zeros_like(z)
+    for seg, value in zip(segments, values[1:]):
+        profile = SpatialProfile([seg["start"], seg["end"]], xp.stack((value, value)))
+        dT = dT + profile.value(z, xp=xp)
+    return dT
 
 
 class TemperaturePerturbation(PipelineStep):
@@ -83,11 +100,11 @@ class TemperaturePerturbation(PipelineStep):
         t_sweep = acq.sweep_index * self.sweep_period
 
         # piecewise-constant dT(z) at this sweep's lab time
-        dT = xp.zeros_like(z)
-        for seg in self.segments:
-            value = seg["delta_T"] + evaluate_motion(seg.get("motion"), t_sweep)
-            mask = (z >= seg["start"]) & (z <= seg["end"])
-            dT = xp.where(mask, dT + value, dT)
+        current_segments = [
+            {**seg, "delta_T": seg["delta_T"] + evaluate_motion(seg.get("motion"), t_sweep)}
+            for seg in self.segments
+        ]
+        dT = temperature_samples_from_segments(current_segments, z, xp=xp)
 
         k0 = 2.0 * math.pi / self.center_wl
         prefactor = 2.0 * k0 * self.n_core * (self.alpha_L + self.xi)
