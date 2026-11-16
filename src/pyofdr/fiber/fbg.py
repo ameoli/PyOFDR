@@ -24,6 +24,8 @@ import math
 from typing import Any
 
 import numpy as np
+from pyrayleigh import WeakFBG
+from pyrayleigh.backends import real_arrays
 
 from pyofdr.utils.constants import C
 
@@ -58,17 +60,31 @@ def weak_fbg_signal(
     used by the Rayleigh profile. It includes sweep errors, GVD and slow FM;
     nu_inst independently sets the spectral envelope. If omitted, assume
     a linear chirp with an integer number of samples per sweep.
+    Native inputs must be finite, with a positive shifted Bragg wavelength.
     """
+    parameters = [nu_inst, n_core, linewidth, photoelastic_coefficient, thermal_expansion, thermo_optic,
+                  1.0 if attenuation is None else attenuation,
+                  0.0 if strain_field is None else strain_field,
+                  0.0 if temperature_field is None else temperature_field]
+    parameters.extend(value for fbg in fbgs for value in
+                      (fbg["bragg_wavelength"], fbg["length"], fbg["peak_reflectivity"]))
+    if time_fraction is not None:
+        parameters.append(time_fraction)
+    xp, values = real_arrays(*parameters, xp=None if xp is np else xp)
+    (nu_inst, n_core, linewidth, photoelastic_coefficient, thermal_expansion, thermo_optic,
+     attenuation_values, strain_values, temperature_values) = values[:9]
     n_t = nu_inst.shape[0]
     out = xp.zeros(n_t, dtype=xp.float64)
     if not fbgs:
         return out
 
     if time_fraction is None:
-        time_fraction = xp.arange(n_t) / n_t
+        time_fraction = xp.arange(n_t, dtype=xp.float64) / n_t
     else:
-        time_fraction = xp.asarray(time_fraction)
-        if time_fraction.shape != (n_t,) or not xp.isfinite(time_fraction).all():
+        time_fraction = xp.asarray(time_fraction, dtype=xp.float64)
+        if time_fraction.shape != (n_t,):
+            raise ValueError("time_fraction must be finite and match nu_inst")
+        if isinstance(time_fraction, np.ndarray) and not np.isfinite(time_fraction).all():
             raise ValueError("time_fraction must be finite and match nu_inst")
 
     for fbg in fbgs:
@@ -80,28 +96,19 @@ def weak_fbg_signal(
 
         shift = 0.0
         if strain_field is not None:
-            strain = float(strain_field[idx_z])
-            shift += (1.0 - photoelastic_coefficient) * strain
+            shift = shift + (1.0 - photoelastic_coefficient) * strain_values[idx_z]
         if temperature_field is not None:
-            delta_T = float(temperature_field[idx_z])
-            shift += (thermal_expansion + thermo_optic) * delta_T
+            shift = shift + (thermal_expansion + thermo_optic) * temperature_values[idx_z]
 
         # Always start from the configured resonance. No drift between sweeps.
-        wavelength = fbg["bragg_wavelength"] * (1.0 + shift)
-        if not math.isfinite(wavelength) or wavelength <= 0:
+        grating = WeakFBG(fbg["z"], fbg["bragg_wavelength"], fbg["length"], fbg["peak_reflectivity"])
+        wavelength = xp.asarray(fbg["bragg_wavelength"] * (1.0 + shift), dtype=xp.float64)
+        if isinstance(wavelength, np.ndarray) and (not np.isfinite(wavelength) or wavelength <= 0):
             raise ValueError("effective FBG Bragg wavelength must be finite and positive")
-        nu_B  = C / wavelength
-        L_g   = fbg["length"]
-        R_max = fbg["peak_reflectivity"]
-        att   = float(attenuation[idx_z]) if attenuation is not None else 1.0
-        if linewidth > 0:
-            # coherence roll-off at the grating's round-trip delay (#86)
-            tau = 2.0 * n_core * (idx_z * dz) / C
-            att *= math.exp(-math.pi * linewidth * tau)
-
-        envelope = math.sqrt(R_max) * att * xp.sinc(
-            2.0 * n_core * L_g * (nu_inst - nu_B) / C
-        )
+        reflection = grating.reflection(nu_inst, n_core, shift, xp=xp)
+        att = attenuation_values[idx_z] if attenuation is not None else attenuation_values
+        tau = 2.0 * n_core * (idx_z * dz) / C
+        envelope = xp.real(reflection) * att * xp.exp(-math.pi * linewidth * tau)
         phase = 2.0 * math.pi * idx_z * time_fraction
         out = out + envelope * xp.cos(phase)
 
