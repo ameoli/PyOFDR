@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import numpy as np
+from pyrayleigh import lossless_reflector
+from pyrayleigh.backends import real_arrays
+from pyrayleigh.units import db_to_linear
+
+
+def reflection_coefficients(reflectors, phases, *, xp=None):
+    """Bare field coefficients for one core, keeping reflector and phase order."""
+    xp, values = real_arrays(phases, *(ref["R"] for ref in reflectors),
+                             xp=None if xp is np else xp)
+    phases = values[0]
+    if phases.shape != (len(reflectors),):
+        raise ValueError("give one phase per reflector")
+    if not reflectors:
+        return xp.zeros((0,), dtype=xp.complex128)
+    return xp.stack([lossless_reflector(ref["z"], ref["R"], phases[index], xp=xp).r_left
+                     for index, ref in enumerate(reflectors)])
 
 
 def reflector_bin(ref, dz, n_z):
@@ -42,8 +57,11 @@ def inject_reflectors(
         idx = reflector_bin(ref, dz, n_z)
         if idx < 0 or idx >= n_z:
             continue
-        # amplitude for a point reflector with power reflectivity R
-        profile[:, idx] += math.sqrt(R) if reflection is None else reflection[:, i]
+        if reflection is None:
+            point = lossless_reflector(ref["z"], R, xp=None if xp is np else xp)
+            profile[:, idx] += xp.real(point.r_left)
+        else:
+            profile[:, idx] += reflection[:, i]
 
     return profile
 
@@ -72,8 +90,10 @@ def apply_connector_losses(
         if idx < 0 or idx >= n_z:
             continue
         # round-trip amplitude factor for one-way loss_dB
-        factor = 10.0 ** (-ref.get("loss_dB", 0.0) / 10.0)
+        array_xp = None if xp is np else xp
+        point = lossless_reflector(ref["z"], ref["R"], xp=array_xp)
+        factor = db_to_linear(-ref.get("loss_dB", 0.0), xp=array_xp)
         attenuation[idx:] *= factor
-        attenuation[idx + 1:] *= 1.0 - ref["R"]
+        attenuation[idx + 1:] *= point.t_left_to_right * point.t_right_to_left
 
     return attenuation

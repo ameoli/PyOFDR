@@ -14,7 +14,8 @@ from pyofdr.fiber.bends import bend_loss_total_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.phase import phase_at_bins
-from pyofdr.fiber.reflectors import apply_connector_losses, inject_reflectors, reflector_bin
+from pyofdr.fiber.reflectors import (apply_connector_losses, inject_reflectors,
+                                    reflection_coefficients, reflector_bin)
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
 from pyofdr.utils.units import dB_to_linear, wavelength_range_to_freq_range
@@ -108,13 +109,12 @@ class FiberGenerator(PipelineStep):
             bins = [reflector_bin(r, dz, n_z) for r in self.reflectors]
             if len(set(bins)) != len(bins):
                 raise ValueError("discrete reflectors must occupy distinct spatial bins")
-            amps = xp.asarray([math.sqrt(r["R"]) for r in self.reflectors])
-            reflection = xp.empty((self.n_cores, len(amps)), dtype=xp.complex128)
+            reflection = xp.empty((self.n_cores, len(self.reflectors)), dtype=xp.complex128)
             for c in range(self.n_cores):
                 rng = self.bk.random_generator(
                     derive_seed(self.seed, component="reflectors", core=c))
-                phase = rng.uniform(0.0, 2.0 * math.pi, len(amps))
-                reflection[c] = amps * xp.exp(1j * phase)
+                phase = rng.uniform(0.0, 2.0 * math.pi, len(self.reflectors))
+                reflection[c] = reflection_coefficients(self.reflectors, phase)
             inject_reflectors(profile, z, dz, self.reflectors,
                               reflection=reflection, xp=xp)
 
