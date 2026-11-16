@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from pyrayleigh import (GuideOptics, Section, WeakFBG, index_segments_profile, lossless_reflector,
+from pyrayleigh import (Fiber, GuideOptics, Section, WeakFBG, index_segments_profile, lossless_reflector,
                         ornstein_uhlenbeck_index_profile)
 from pyrayleigh.backends import real_arrays
 from pyrayleigh.modes import (attenuation_from_loss_db, exponential_bend_loss_db,
@@ -148,3 +148,21 @@ def build_index_profile(config, cell_length, *, xp=None):
         segments.extend((sample.positions[index], sample.positions[index + 1], sample.values[index])
                         for index in range(len(sample.positions) - 1))
     return index_segments_profile(segments, xp=xp)
+
+
+def build_core(config, core=0, *, cell_length, reference_temperature,
+               frequency_min, frequency_max, xp):
+    """One core on fixed cells, with reference temperature [K] and band [Hz].
+
+    Pass one Array API namespace for all numerical components.
+    """
+    if not 0 <= core < config["fiber"]["n_cores"]:
+        raise ValueError("core index is outside the configured fiber")
+    guide = build_guide(config, xp=xp)
+    sections = build_sections(config, guide, xp=xp)
+    elements = build_reflectors(config, core, xp=xp) + build_fbgs(config, xp=xp)
+    index = build_index_profile(config, cell_length, xp=xp)
+    fiber = Fiber(f"core-{core}", config["fiber"]["length"], reference_temperature,
+                  frequency_min, frequency_max, sections, elements, index_perturbation=index)
+    seed = derive_seed(config["simulation"]["seed"], component="fiber", core=core)
+    return fiber.with_rayleigh(seed, cell_length=cell_length, xp=xp)
