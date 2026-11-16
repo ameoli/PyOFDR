@@ -191,7 +191,7 @@ def build_state(config, cell_edges, mechanical_strain=None, temperature_change=N
     """Freeze sampled fields on fixed cells; inputs are scalars or one value per cell.
 
     Strain is mechanical and temperature is a change [K]. The last cell's
-    value is kept at the end face, as in PyOFDR's grating lookup.
+    value is kept at the end face unless an extra endpoint value is supplied.
     """
     edges = np.asarray(cell_edges)
     if edges.dtype.kind not in "iuf":
@@ -209,13 +209,25 @@ def build_state(config, cell_edges, mechanical_strain=None, temperature_change=N
     count = len(edges) - 1
     if alpha.ndim != 0:
         raise ValueError("thermal expansion must be a scalar")
+    endpoint = any(value.shape == (count + 1,) for value in (mechanical, temperature))
+    values = []
     for value in (mechanical, temperature):
-        if value.ndim != 0 and value.shape != (count,):
-            raise ValueError("fields must be scalars or have one value per cell")
+        if value.ndim == 0:
+            value = xp.broadcast_to(value, (count + int(endpoint),))
+        elif value.shape == (count,) and endpoint:
+            value = xp.concat((value, value[-1:]))
+        elif value.shape != (count + int(endpoint),):
+            raise ValueError("fields need one value per cell and an optional endpoint")
+        values.append(value)
+    mechanical, temperature = values
     positions = np.repeat(edges, 2)[1:-1]
+    if endpoint:
+        positions = np.append(positions, edges[-1])
     fields = []
     for value in (mechanical + alpha*temperature, temperature):
-        value = xp.broadcast_to(value, (count,))
-        samples = xp.reshape(xp.stack((value, value), axis=1), (-1,))
+        cells = value[:-1] if endpoint else value
+        samples = xp.reshape(xp.stack((cells, cells), axis=1), (-1,))
+        if endpoint:
+            samples = xp.concat((samples, value[-1:]))
         fields.append(Field((FieldTerm(SpatialProfile(positions, samples)),)))
     return FiberState(axial_strain=fields[0], temperature_change=fields[1])

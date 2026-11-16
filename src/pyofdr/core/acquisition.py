@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from pyrayleigh import FiberState, MultiCoreFiber
 
 
 @dataclass
@@ -17,6 +18,9 @@ class Acquisition:
     fiber_profile: np.ndarray | None = None       # (n_cores, n_z), complex
     attenuation_envelope: np.ndarray | None = None  # (n_z,), float
     ghost_profile: np.ndarray | None = None       # (n_cores, n_z), already attenuated
+
+    fiber_model: MultiCoreFiber | None = None
+    fiber_state: FiberState | None = None
 
     t: np.ndarray | None = None       # (n_t,), time samples [s]
     dt: float = 0.0                   # sample interval [s]

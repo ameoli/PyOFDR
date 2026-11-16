@@ -31,6 +31,7 @@ def run_campaign(cfg: dict, keep_acquisitions: bool = True) -> list[Acquisition]
     from pyofdr.fiber.profile import FiberGenerator
     from pyofdr.fiber.strain import StrainPerturbation
     from pyofdr.fiber.temperature import TemperaturePerturbation
+    from pyofdr.fiber.pipeline import FiberModel
     from pyofdr.source.swept_laser import SweptLaser
     from pyofdr.optics.mach_zehnder import MachZehnder
     from pyofdr.optics.aux_mzi import AuxMZI
@@ -57,6 +58,7 @@ def run_campaign(cfg: dict, keep_acquisitions: bool = True) -> list[Acquisition]
         FiberGenerator(cfg),
         StrainPerturbation(cfg),
         TemperaturePerturbation(cfg),
+        FiberModel(cfg),
         SweptLaser(cfg),
         MachZehnder(cfg),
         AuxMZI(cfg),     # no-op unless optics.aux_mzi.enabled
