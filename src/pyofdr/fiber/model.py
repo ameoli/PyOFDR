@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from pyrayleigh import GuideOptics, Section, lossless_reflector
+from pyrayleigh import GuideOptics, Section, WeakFBG, lossless_reflector
 from pyrayleigh.backends import real_arrays
 from pyrayleigh.units import (attenuation_from_db_per_km, db_to_linear,
                              dispersion_to_gvd_at_wavelength, wavelength_to_frequency)
@@ -78,4 +78,16 @@ def build_reflectors(config, core=0, *, xp=None):
         elements.append(replace(point, r_left=point.r_left*q*q,
                                  t_left_to_right=point.t_left_to_right*q,
                                  t_right_to_left=point.t_right_to_left*q))
+    return tuple(elements)
+
+
+def build_fbgs(config, *, xp=None):
+    """Weak gratings at configured positions, keeping the input order."""
+    entries = config["fiber"]["fbg_arrays"]
+    xp, values = real_arrays(*(value for item in entries for value in
+                               (item["bragg_wavelength"], item["length"], item["peak_reflectivity"])), xp=xp)
+    elements = []
+    for index, item in enumerate(entries):
+        wavelength, length, reflectivity = values[3*index:3*index + 3]
+        elements.append(WeakFBG(item["z"], wavelength, length, reflectivity))
     return tuple(elements)
