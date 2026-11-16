@@ -12,6 +12,7 @@ from pyofdr.fiber.attenuation import (
 )
 from pyofdr.fiber.bends import bend_loss_total_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
+from pyofdr.fiber.index import index_samples_from_normals
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.phase import phase_at_bins
 from pyofdr.fiber.reflectors import (apply_connector_losses, inject_reflectors,
@@ -135,19 +136,10 @@ class FiberGenerator(PipelineStep):
                 and self.index_fluctuations["sigma"] > 0):
             sigma  = self.index_fluctuations["sigma"]
             L_corr = self.index_fluctuations["correlation_length"]
-            # AR(1) form of OU: dn[k] = a*dn[k-1] + sigma*sqrt(1-a^2)*eta[k],
-            # init from the stationary distribution -> dn[0] = sigma*eta[0].
-            a = math.exp(-dz / L_corr)
             rng_n = self.bk.random_generator(
                 derive_seed(self.seed, component="index_fluctuations"))
             eta = rng_n.standard_normal(n_z)
-            dn_rand = xp.empty(n_z)
-            dn_rand[0] = sigma * eta[0]
-            scale = sigma * math.sqrt(1.0 - a * a)
-            # python loop -- n_z up to ~1e5 in typical OFDR runs, ~50 ms.
-            # vectorized AR(1) via lfilter would need stationary-init zi math.
-            for k in range(1, n_z):
-                dn_rand[k] = a * dn_rand[k-1] + scale * eta[k]
+            dn_rand = index_samples_from_normals(eta, dz, sigma, L_corr)
             delta_n = dn_rand if delta_n is None else delta_n + dn_rand
 
         phi_n = None
