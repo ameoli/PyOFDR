@@ -15,11 +15,12 @@ from pyofdr.fiber.crosstalk import apply_crosstalk
 from pyofdr.fiber.index import index_samples_from_normals, index_samples_from_segments
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.phase import phase_at_bins
+from pyofdr.fiber.rayleigh import rayleigh_rates_from_segments
 from pyofdr.fiber.reflectors import (apply_connector_losses, inject_reflectors,
                                     reflection_coefficients, reflector_bin)
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
-from pyofdr.utils.units import dB_to_linear, wavelength_range_to_freq_range
+from pyofdr.utils.units import wavelength_range_to_freq_range
 
 
 class FiberGenerator(PipelineStep):
@@ -75,19 +76,8 @@ class FiberGenerator(PipelineStep):
         n_z = int(math.ceil(self.length / dz))
         z = xp.arange(n_z) * dz
 
-        # Rayleigh backscatter coefficient (power per meter). When
-        # segments are given we build a per-z R(z) array; the overall
-        # sigma then also varies along the fiber.
-        if self.rayleigh_segments:
-            R_z = xp.full(n_z, dB_to_linear(self.rayleigh_dB))
-            for seg in self.rayleigh_segments:
-                mask = (z >= seg["start"]) & (z < seg["end"])
-                R_z = xp.where(mask,
-                               dB_to_linear(seg["rayleigh_coefficient_dB"]),
-                               R_z)
-            sigma = xp.sqrt(R_z * dz)
-        else:
-            sigma = math.sqrt(dB_to_linear(self.rayleigh_dB) * dz)
+        R_z = rayleigh_rates_from_segments(self.rayleigh_dB, self.rayleigh_segments, z, xp=xp)
+        sigma = xp.sqrt(R_z * dz)
 
         # one independent profile per core (circular gaussian phasors)
         parts = []
