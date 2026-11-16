@@ -34,7 +34,7 @@ from typing import Protocol
 
 import numpy as np
 
-from pyrayleigh import cox_strain
+from pyrayleigh import SpatialProfile, cox_strain
 from pyrayleigh.backends import real_arrays
 
 from pyofdr.strain_transfer.motions import check_motion_sampling, evaluate_motion
@@ -58,14 +58,13 @@ class IdealTransfer:
     """Lossless: eps_fiber == eps_host inside each segment, 0 outside."""
 
     def apply(self, segments, z, *, xp=np):
+        xp, values = real_arrays(z, *(seg["epsilon"] for seg in segments),
+                                 xp=None if xp is np else xp)
+        z = values[0]
         eps = xp.zeros_like(z)
-        for seg in segments:
-            z0  = float(seg["start"])
-            z1  = float(seg["end"])
-            val = float(seg["epsilon"])
-            mask = (z >= z0) & (z <= z1)
-            # overlapping segments add up -- physically what you'd expect
-            eps = xp.where(mask, eps + val, eps)
+        for seg, value in zip(segments, values[1:]):
+            profile = SpatialProfile([seg["start"], seg["end"]], xp.stack((value, value)))
+            eps = eps + profile.value(z, xp=xp)
         return eps
 
 
