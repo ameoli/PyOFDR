@@ -4,7 +4,8 @@ from dataclasses import replace
 
 import numpy as np
 
-from pyrayleigh import (Fiber, GuideOptics, Section, WeakFBG, index_segments_profile, lossless_reflector,
+from pyrayleigh import (Fiber, GuideOptics, MultiCoreFiber, Section, WeakFBG,
+                        index_segments_profile, lossless_reflector,
                         ornstein_uhlenbeck_index_profile)
 from pyrayleigh.backends import real_arrays
 from pyrayleigh.modes import (attenuation_from_loss_db, exponential_bend_loss_db,
@@ -166,3 +167,20 @@ def build_core(config, core=0, *, cell_length, reference_temperature,
                   frequency_min, frequency_max, sections, elements, index_perturbation=index)
     seed = derive_seed(config["simulation"]["seed"], component="fiber", core=core)
     return fiber.with_rayleigh(seed, cell_length=cell_length, xp=xp)
+
+
+def build_fiber(config, *, cell_length, reference_temperature, frequency_min, frequency_max, xp):
+    """All configured cores, with stored crosstalk phases when enabled."""
+    cores = [build_core(config, core, cell_length=cell_length,
+                        reference_temperature=reference_temperature, frequency_min=frequency_min,
+                        frequency_max=frequency_max, xp=xp)
+             for core in range(config["fiber"]["n_cores"])]
+    fiber = MultiCoreFiber(cores)
+    coupling = config["fiber"]["crosstalk"]
+    if coupling is None or fiber.n_cores == 1:
+        return fiber
+    seed = derive_seed(config["simulation"]["seed"], component="crosstalk")
+    multiple = config["fiber"]["multiple_scattering"]
+    order = 1 if multiple is None else multiple["max_order"]
+    return fiber.with_crosstalk(seed, coupling["xt_dB_per_km"], topology=coupling["topology"],
+                                max_order=order, xp=xp)
