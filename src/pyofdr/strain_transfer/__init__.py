@@ -30,10 +30,12 @@ ones at a given lab time so transfer.apply keeps working unchanged.
 
 from __future__ import annotations
 
-import math
 from typing import Protocol
 
 import numpy as np
+
+from pyrayleigh import cox_strain
+from pyrayleigh.backends import real_arrays
 
 from pyofdr.strain_transfer.motions import check_motion_sampling, evaluate_motion
 
@@ -74,30 +76,23 @@ class CoxShearLag:
     only the edges roll off.
     Short bonds (beta * L_h << 1) -> poor coupling, transfer is small
     everywhere.
+    Native beta values are kept as supplied and must be positive.
     """
 
     def __init__(self, beta: float) -> None:
-        if beta <= 0:
+        _, (value,) = real_arrays(beta)
+        if value.ndim != 0:
+            raise ValueError("Cox beta must be a scalar")
+        if isinstance(value, np.ndarray) and value <= 0:
             raise ValueError("Cox beta must be positive")
-        self.beta = float(beta)
+        self.beta = beta
 
     def apply(self, segments, z, *, xp=np):
+        parameters = [z, self.beta]
+        parameters.extend(value for seg in segments for value in (seg["start"], seg["end"], seg["epsilon"]))
+        xp, arrays = real_arrays(*parameters, xp=None if xp is np else xp)
+        z = arrays[0]
         eps = xp.zeros_like(z)
-        b = self.beta
         for seg in segments:
-            z0  = float(seg["start"])
-            z1  = float(seg["end"])
-            val = float(seg["epsilon"])
-            half   = 0.5 * (z1 - z0)
-            centre = 0.5 * (z0 + z1)
-            mask = (z >= z0) & (z <= z1)
-            # distance from segment centre, clipped to the segment so points
-            # far outside don't blow up the exponentials below
-            s = xp.minimum(xp.abs(z - centre), half)
-            # cosh(b s)/cosh(b half) written with exponents <= 0: the naive
-            # ratio overflows for stiff bonds (beta*half > ~710, see #85)
-            ratio = (xp.exp(b * (s - half)) + xp.exp(-b * (s + half))) \
-                / (1.0 + math.exp(-2.0 * b * half))
-            local = val * (1.0 - ratio)
-            eps = xp.where(mask, eps + local, eps)
+            eps = eps + cox_strain(z, seg["start"], seg["end"], seg["epsilon"], self.beta, xp=xp)
         return eps
