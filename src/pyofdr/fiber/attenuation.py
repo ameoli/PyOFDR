@@ -10,27 +10,27 @@ import math
 
 import numpy as np
 
+from pyrayleigh.backends import real_arrays
+from pyrayleigh.units import attenuation_from_db_per_km
+
 # log(10) is just a constant; precompute it so we don't depend on
 # any particular array module here
 _LN10 = math.log(10.0)
 
 
-def dB_per_km_to_neper_per_m(alpha_dB_km):
+def dB_per_km_to_neper_per_m(alpha_dB_km, *, xp=None):
     """dB/km to Np/m conversion."""
-    return alpha_dB_km * _LN10 / (10.0 * 1000.0)
+    return attenuation_from_db_per_km(alpha_dB_km, xp=None if xp is np else xp)
 
 
-def round_trip_attenuation(z, alpha_dB_km, xp=np):
-    """Amplitude attenuation envelope exp(-alpha*z).
-
-    `xp` is the array module to use (numpy by default). Pass cupy
-    or jax.numpy here when running on a non-numpy backend.
-    """
-    alpha = dB_per_km_to_neper_per_m(alpha_dB_km)
+def round_trip_attenuation(z, alpha_dB_km, xp=None):
+    """Round-trip amplitude exp(-alpha*z), with alpha the power loss [1/m]."""
+    xp, (z, alpha_dB_km) = real_arrays(z, alpha_dB_km, xp=None if xp is np else xp)
+    alpha = dB_per_km_to_neper_per_m(alpha_dB_km, xp=xp)
     return xp.exp(-alpha * z)
 
 
-def round_trip_attenuation_varying(z, alpha_dB_km_z, dz, xp=np):
+def round_trip_attenuation_varying(z, alpha_dB_km_z, dz, xp=None):
     """Envelope for a z-dependent loss, exp(-integral(alpha(z') dz')).
 
     alpha_dB_km_z is an array of the same length as z, one loss value
@@ -39,12 +39,19 @@ def round_trip_attenuation_varying(z, alpha_dB_km_z, dz, xp=np):
     (alpha ~ 0.2 dB/km, dz ~ mm) this is ~1e-6 dB, well below any
     realistic loss budget. The loss at bin k applies to [z[k], z[k+1]).
     """
+    xp, (z, alpha_dB_km_z, dz) = real_arrays(
+        z, alpha_dB_km_z, dz, xp=None if xp is np else xp)
     loss_dB = cumulative_loss_dB(alpha_dB_km_z, dz, xp=xp)
     return xp.exp(-loss_dB * _LN10 / 10.0)
 
 
-def cumulative_loss_dB(alpha_dB_km_z, dz, xp=np):
+def cumulative_loss_dB(alpha_dB_km_z, dz, xp=None):
     """One-way distributed loss from the input to each bin, in dB."""
-    loss = xp.zeros_like(alpha_dB_km_z, dtype=float)
-    loss[1:] = xp.cumsum(alpha_dB_km_z[:-1]) * (dz / 1000.0)
-    return loss
+    xp, (alpha_dB_km_z, dz) = real_arrays(
+        alpha_dB_km_z, dz, xp=None if xp is np else xp)
+    if alpha_dB_km_z.ndim != 1:
+        raise ValueError("loss samples must be a vector")
+    if alpha_dB_km_z.shape[0] == 0:
+        return xp.zeros_like(alpha_dB_km_z)
+    loss = xp.cumulative_sum(alpha_dB_km_z[:-1], axis=0) * (dz / 1000.0)
+    return xp.concat((xp.zeros_like(alpha_dB_km_z[:1]), loss))
