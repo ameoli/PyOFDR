@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from pyrayleigh import reflection_paths_from_positions
+from pyrayleigh import reciprocal_transmission_factors, reflection_paths_from_positions
 
 from pyofdr.fiber.reflectors import reflector_bin
 
@@ -46,14 +46,8 @@ def add_ghost_reflections(
                       for b in bins]
     extra = [10.0 ** (-r.get("loss_dB", 0.0) / 20.0) for r in refs]
     transmission = [math.sqrt(1.0 - r["R"]) * q for r, q in zip(refs, extra)]
-    n_r = len(refs)
-    travel = [[1.0] * (n_r + 1) for _ in range(n_r + 1)]
-    for i in range(n_r + 1):
-        for j in range(i + 1, n_r + 1):
-            factor = 10.0 ** (-abs(losses[j] - losses[i]) / 20.0)
-            for k in range(i + 1, j):
-                factor *= transmission[k - 1]
-            travel[i][j] = travel[j][i] = factor
+    travel = reciprocal_transmission_factors(
+        losses, transmission, xp=None if xp is np else xp)
 
     active = [i for i, r in enumerate(refs) if r["R"] > 0]
     paths = reflection_paths_from_positions([bins[i] for i in active], max_order=max_order)
