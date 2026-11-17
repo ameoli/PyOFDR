@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import itertools
 import math
 
 import numpy as np
+from pyrayleigh import reflection_paths_from_positions
 
 from pyofdr.fiber.reflectors import reflector_bin
 
@@ -56,29 +56,28 @@ def add_ghost_reflections(
             travel[i][j] = travel[j][i] = factor
 
     active = [i for i, r in enumerate(refs) if r["R"] > 0]
-    for order in range(2, max_order + 1):
-        for path in itertools.product(active, repeat=2 * order - 1):
-            if any(bins[path[m]] >= bins[path[m - 1]]
-                   or bins[path[m]] >= bins[path[m + 1]]
-                   for m in range(1, len(path), 2)):
-                continue
-            b = sum(bins[idx] if m % 2 == 0 else -bins[idx]
-                    for m, idx in enumerate(path))
-            if not 0 <= b < n_z:
-                continue
+    paths = reflection_paths_from_positions([bins[i] for i in active], max_order=max_order)
+    for route in paths:
+        if len(route) == 1:
+            continue
+        path = tuple(active[i] for i in route)
+        b = sum(bins[idx] if m % 2 == 0 else -bins[idx]
+                for m, idx in enumerate(path))
+        if not 0 <= b < n_z:
+            continue
 
-            amp = xp.ones(n_cores, dtype=xp.complex128)
-            previous = 0
-            for m, idx in enumerate(path):
-                amp *= travel[previous][idx + 1]
-                if m % 2 == 0:
-                    # The extra loss sits on the left of the interface.
-                    amp *= reflection[:, idx] * extra[idx] ** 2
-                else:
-                    # Real transmission fixes the reverse reflection phase.
-                    amp *= -xp.conj(reflection[:, idx])
-                previous = idx + 1
-            amp *= travel[previous][0]
-            profile[:, b] += amp
+        amp = xp.ones(n_cores, dtype=xp.complex128)
+        previous = 0
+        for m, idx in enumerate(path):
+            amp *= travel[previous][idx + 1]
+            if m % 2 == 0:
+                # The extra loss sits on the left of the interface.
+                amp *= reflection[:, idx] * extra[idx] ** 2
+            else:
+                # Real transmission fixes the reverse reflection phase.
+                amp *= -xp.conj(reflection[:, idx])
+            previous = idx + 1
+        amp *= travel[previous][0]
+        profile[:, b] += amp
 
     return profile
