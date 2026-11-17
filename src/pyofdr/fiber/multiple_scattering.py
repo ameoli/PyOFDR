@@ -5,9 +5,37 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from pyrayleigh import reciprocal_transmission_factors, reflection_paths_from_positions
+from pyrayleigh import (lossless_reflector, reciprocal_transmission_factors,
+                        reflection_paths_from_positions)
+from pyrayleigh.backends import real_arrays
+from pyrayleigh.units import db_to_linear
 
 from pyofdr.fiber.reflectors import reflector_bin
+
+
+def ghost_transmission_factors(reflectors, bins, loss_to_z=None, *, xp=None):
+    """Input-side insertion factors and reciprocal travel on fixed reflector bins."""
+    xp, values = real_arrays(0. if loss_to_z is None else loss_to_z,
+                             *(value for ref in reflectors for value in
+                               (ref["R"], ref.get("loss_dB", 0.))),
+                             xp=None if xp is np else xp)
+    field = values[0]
+    if len(bins) != len(reflectors):
+        raise ValueError("give one bin per reflector")
+    if loss_to_z is not None and field.ndim != 1:
+        raise ValueError("loss_to_z must be a vector")
+    zero = xp.asarray(0., dtype=xp.float64)
+    losses = xp.stack([zero] + [zero if loss_to_z is None else field[b] for b in bins])
+    extra, transmission = [], []
+    for i, ref in enumerate(reflectors):
+        reflectance, loss = values[1 + 2*i:3 + 2*i]
+        point = lossless_reflector(ref["z"], reflectance, xp=xp)
+        factor = db_to_linear(-loss/2., xp=xp)
+        extra.append(factor)
+        transmission.append(point.t_left_to_right*factor)
+    extra = xp.stack(extra) if extra else xp.zeros((0,), dtype=xp.float64)
+    transmission = xp.stack(transmission) if transmission else xp.zeros((0,), dtype=xp.float64)
+    return extra, reciprocal_transmission_factors(losses, transmission, xp=xp)
 
 
 def add_ghost_reflections(
@@ -41,13 +69,7 @@ def add_ghost_reflections(
     else:
         reflection = reflection[:, selected]
 
-    # Node 0 is the input, before a possible reflector at z=0.
-    losses = [0.0] + [0.0 if loss_to_z is None else float(loss_to_z[b])
-                      for b in bins]
-    extra = [10.0 ** (-r.get("loss_dB", 0.0) / 20.0) for r in refs]
-    transmission = [math.sqrt(1.0 - r["R"]) * q for r, q in zip(refs, extra)]
-    travel = reciprocal_transmission_factors(
-        losses, transmission, xp=None if xp is np else xp)
+    extra, travel = ghost_transmission_factors(refs, bins, loss_to_z, xp=xp)
 
     active = [i for i, r in enumerate(refs) if r["R"] > 0]
     paths = reflection_paths_from_positions([bins[i] for i in active], max_order=max_order)
