@@ -22,6 +22,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from pyrayleigh import Probe
+from pyrayleigh.backends import real_arrays
+
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config_models import InstrumentConfig, RootConfig
 from pyofdr.core.pipeline import PipelineStep
@@ -152,3 +155,10 @@ class SweptLaser(PipelineStep):
                      rin_dB_per_Hz=self.rin_dB_per_Hz,
                      envelope_edge_dB=self.envelope_edge_dB)
         return acq
+
+    def make_probe(self, acq: Acquisition, *, xp=None) -> Probe:
+        """Absolute frequencies and laboratory times for a PyRayleigh query."""
+        if acq.nu_inst is None or acq.t is None:
+            raise RuntimeError("Source: frequency/time not set (run SweptLaser first)")
+        _, (frequency, time) = real_arrays(acq.nu_inst, acq.t, xp=xp)
+        return Probe(frequency, time + acq.sweep_index * self.sweep_duration)
