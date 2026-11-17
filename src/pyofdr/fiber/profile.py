@@ -10,7 +10,8 @@ from pyrayleigh import rayleigh_coefficients_from_normals
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.pipeline import PipelineStep
 from pyofdr.fiber.attenuation import (
-    cumulative_loss_dB, round_trip_attenuation, round_trip_attenuation_varying,
+    attenuation_samples_from_segments, cumulative_loss_dB,
+    round_trip_attenuation, round_trip_attenuation_varying,
 )
 from pyofdr.fiber.bends import bend_loss_total_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
@@ -149,12 +150,8 @@ class FiberGenerator(PipelineStep):
 
         # Base attenuation, including any per-segment overrides.
         if self.attenuation_segments:
-            alpha_z = xp.full(n_z, float(self.attenuation_dB_km))
-            for seg in self.attenuation_segments:
-                mask = (z >= seg["start"]) & (z < seg["end"])
-                alpha_z = xp.where(mask,
-                                   seg["attenuation_dB_per_km"],
-                                   alpha_z)
+            alpha_z = attenuation_samples_from_segments(
+                self.attenuation_dB_km, self.attenuation_segments, z, xp=xp)
             attenuation = round_trip_attenuation_varying(z, alpha_z, dz, xp=xp)
             loss_to_z = cumulative_loss_dB(alpha_z, dz, xp=xp)
         else:

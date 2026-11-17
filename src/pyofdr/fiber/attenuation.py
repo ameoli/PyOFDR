@@ -18,6 +18,19 @@ from pyrayleigh.units import attenuation_from_db_per_km
 _LN10 = math.log(10.0)
 
 
+def attenuation_samples_from_segments(coefficient_dB_km, segments, z, *, xp=None):
+    """Loss [dB/km] on half-open intervals; the last matching segment wins."""
+    xp, values = real_arrays(z, coefficient_dB_km,
+                             *(seg["attenuation_dB_per_km"] for seg in segments),
+                             xp=None if xp is np else xp)
+    z, base = values[:2]
+    loss = xp.ones_like(z) * base
+    for seg, value in zip(segments, values[2:]):
+        inside = (z >= seg["start"]) & (z < seg["end"])
+        loss = xp.where(inside, value, loss)
+    return loss
+
+
 def dB_per_km_to_neper_per_m(alpha_dB_km, *, xp=None):
     """dB/km to Np/m conversion."""
     return attenuation_from_db_per_km(alpha_dB_km, xp=None if xp is np else xp)
