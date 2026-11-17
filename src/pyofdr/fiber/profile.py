@@ -13,7 +13,7 @@ from pyofdr.fiber.attenuation import (
     attenuation_samples_from_segments, cumulative_loss_dB,
     round_trip_attenuation, round_trip_attenuation_varying,
 )
-from pyofdr.fiber.bends import bend_loss_total_dB
+from pyofdr.fiber.bends import bend_loss_to_positions, bend_loss_total_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
 from pyofdr.fiber.index import index_samples_from_normals, index_samples_from_segments
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
@@ -158,13 +158,10 @@ class FiberGenerator(PipelineStep):
             attenuation = round_trip_attenuation(z, self.attenuation_dB_km, xp=xp)
             loss_to_z = z * (self.attenuation_dB_km / 1000.0)
 
-        # Integrate each bend over its actual overlap with [0, z]. Counting
-        # whole bins can lose a short bend or give it several times its loss.
         for bend in self.bends:
-            length = bend["end"] - bend["start"]
             total_dB = bend_loss_total_dB(bend, wavelength=self.center_wl)
-            covered = xp.maximum(0.0, xp.minimum(z, bend["end"]) - max(0.0, bend["start"]))
-            loss_to_z = loss_to_z + total_dB * (covered / length)
+            loss_to_z = loss_to_z + bend_loss_to_positions(
+                z, bend["start"], bend["end"], total_dB, xp=xp)
         if self.bends:
             attenuation = xp.exp(-loss_to_z * math.log(10.0) / 10.0)
 

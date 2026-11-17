@@ -32,6 +32,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+from pyrayleigh import SpatialProfile
 from pyrayleigh.backends import real_arrays
 from pyrayleigh.modes import (exponential_bend_loss_db, marcuse_bend_loss_db,
                               solve_lp01_mode, tabulated_bend_loss_db)
@@ -107,6 +108,18 @@ def tabulated_bend_loss_dB(radius, turns, table, *, xp=None):
             warnings.warn(f"bend radius {radius:g} m outside table range "
                           f"[{radii[0]:g}, {radii[-1]:g}] m, clamping to the edge")
     return tabulated_bend_loss_db(radius, turns, radii, xp.stack(values[2:]), xp=xp)
+
+
+def bend_loss_to_positions(z, start, end, total_loss_dB, *, xp=None):
+    """Cumulative one-way loss [dB] on a fixed bend interval, clipped at the input."""
+    xp, (z, loss) = real_arrays(z, total_loss_dB, xp=None if xp is np else xp)
+    length = end - start
+    start = max(0., start)
+    if end <= start:
+        return xp.zeros_like(z)
+    rate = loss / length
+    profile = SpatialProfile([start, end], xp.stack((rate, rate)))
+    return profile.integral(z, xp=xp)
 
 
 def bend_loss_total_dB(bend, wavelength=None, *, xp=None):
