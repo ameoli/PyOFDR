@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from pyrayleigh import rayleigh_coefficients_from_normals
+
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.pipeline import PipelineStep
 from pyofdr.fiber.attenuation import (
@@ -77,7 +79,8 @@ class FiberGenerator(PipelineStep):
         z = xp.arange(n_z) * dz
 
         R_z = rayleigh_rates_from_segments(self.rayleigh_dB, self.rayleigh_segments, z, xp=xp)
-        sigma = xp.sqrt(R_z * dz)
+        last_length = min(dz, max(0.0, self.length - (n_z - 1) * dz))
+        cell_lengths = xp.where(xp.arange(n_z) < n_z - 1, dz, last_length)
 
         # one independent profile per core (circular gaussian phasors)
         parts = []
@@ -87,12 +90,9 @@ class FiberGenerator(PipelineStep):
             )
             re = rng_c.standard_normal(n_z)
             im = rng_c.standard_normal(n_z)
-            parts.append((sigma / math.sqrt(2.0)) * (re + 1j * im))
+            normals = xp.stack((re, im), axis=1)
+            parts.append(rayleigh_coefficients_from_normals(normals, R_z, cell_lengths))
         profile = xp.stack(parts)
-
-        # Rayleigh power is proportional to the fiber length in the cell.
-        last_length = min(dz, max(0.0, self.length - (n_z - 1) * dz))
-        profile[:, -1] *= math.sqrt(last_length / dz)
 
         # discrete reflectors (connectors, splices, etc)
         reflection = None
