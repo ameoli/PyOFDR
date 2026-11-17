@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from pyrayleigh import (lossless_reflector, reciprocal_transmission_factors,
+from pyrayleigh import (lossless_reflector, point_path_amplitude, reciprocal_transmission_factors,
                         reflection_paths_from_positions)
 from pyrayleigh.backends import real_arrays
 from pyrayleigh.units import db_to_linear
@@ -70,6 +70,8 @@ def add_ghost_reflections(
         reflection = reflection[:, selected]
 
     extra, travel = ghost_transmission_factors(refs, bins, loss_to_z, xp=xp)
+    r_left = reflection * extra**2
+    r_right = -xp.conj(reflection)
 
     active = [i for i, r in enumerate(refs) if r["R"] > 0]
     paths = reflection_paths_from_positions([bins[i] for i in active], max_order=max_order)
@@ -82,18 +84,7 @@ def add_ghost_reflections(
         if not 0 <= b < n_z:
             continue
 
-        amp = xp.ones(n_cores, dtype=xp.complex128)
-        previous = 0
-        for m, idx in enumerate(path):
-            amp *= travel[previous][idx + 1]
-            if m % 2 == 0:
-                # The extra loss sits on the left of the interface.
-                amp *= reflection[:, idx] * extra[idx] ** 2
-            else:
-                # Real transmission fixes the reverse reflection phase.
-                amp *= -xp.conj(reflection[:, idx])
-            previous = idx + 1
-        amp *= travel[previous][0]
+        amp = point_path_amplitude(path, r_left, r_right, travel, xp=None if xp is np else xp)
         profile[:, b] += amp
 
     return profile
