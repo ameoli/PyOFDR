@@ -3,47 +3,69 @@ import math
 from pathlib import Path
 from typing import Any
 import yaml
-from pyofdr.core.config_models import RootConfig
+from pyofdr.core.config_models import InstrumentConfig, RootConfig
 from pyofdr.utils.constants import C
 from pyofdr.utils.sampling import sweep_sample_count
 
 
-def load_config(path: str | Path) -> dict[str, Any]:
-    """Load and validate YAML config. Returns a plain dict."""
+def _read_config(path: str | Path):
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
     with open(path) as f:
         raw = yaml.safe_load(f) or {}
-    return RootConfig(**raw).model_dump()
+    return raw
+
+
+def load_config(path: str | Path) -> dict[str, Any]:
+    """Load the complete legacy YAML recipe. Returns a plain dict."""
+    return RootConfig(**_read_config(path)).model_dump()
+
+
+def load_instrument_config(path: str | Path) -> dict[str, Any]:
+    """Load instrument settings without constructing or validating a fiber."""
+    return InstrumentConfig(**_read_config(path)).model_dump()
+
+
+def compute_instrument_derived(cfg: dict | InstrumentConfig) -> dict:
+    """Clock and frequency quantities independent of a fiber model."""
+    config = cfg if isinstance(cfg, InstrumentConfig) else InstrumentConfig(**cfg)
+    source, adc = config.source, config.adc
+    delta_nu = C / source.center_wavelength**2 * source.sweep_range
+    gamma = delta_nu / source.sweep_duration
+    n_t = sweep_sample_count(source.sweep_duration, adc.sample_rate)
+    frequency_step_hz = gamma / adc.sample_rate
+    return {
+        "delta_nu": delta_nu,
+        "gamma": gamma,
+        "n_t": n_t,
+        "frequency_step_hz": frequency_step_hz,
+        "fft_sweep_range_hz": n_t * frequency_step_hz,
+        "f_nyquist": adc.sample_rate / 2.0,
+        "linewidth": source.linewidth,
+    }
 
 
 def compute_derived(cfg: dict) -> dict:
     """Compute derived physical quantities from config."""
     # validate first so we can trust the fields and not duplicate defaults
-    cfg = RootConfig(**cfg).model_dump()
+    config = RootConfig(**cfg)
+    derived = compute_instrument_derived(config.instrument())
+    cfg = config.model_dump()
     fiber  = cfg["fiber"]
-    source = cfg["source"]
-    adc    = cfg["adc"]
 
     n        = fiber["n_core"]
     n_cores  = fiber["n_cores"]
-    wl       = source["center_wavelength"]
-    sweep_wl = source["sweep_range"]
-    T_sweep  = source["sweep_duration"]
-    lw       = source["linewidth"]
-    fs       = adc["sample_rate"]
+    lw       = derived["linewidth"]
     L        = fiber["length"]
 
     # frequency range from wavelenght range
-    delta_nu = C / wl**2 * sweep_wl
-    gamma = delta_nu / T_sweep       # chirp rate [Hz/s]
+    delta_nu = derived["delta_nu"]
+    gamma = derived["gamma"]
     dz = C / (2 * n * delta_nu)      # spatial resolution [m]
     # match what fiber/profile.py and source/swept_laser.py actually do
     n_z = int(math.ceil(L / dz))
-    n_t = sweep_sample_count(T_sweep, fs)
-    frequency_step_hz = gamma / fs
-    fft_sweep_range_hz = n_t * frequency_step_hz
+    fft_sweep_range_hz = derived["fft_sweep_range_hz"]
     fft_dz = C / (2 * n * fft_sweep_range_hz)
 
     # max beat frequency -- needs to be below Nyquist
@@ -52,22 +74,16 @@ def compute_derived(cfg: dict) -> dict:
     # coherence length L_coh = c / (pi * n * linewidth)
     L_coh = C / (math.pi * n * lw) if lw > 0 else float("inf")
 
-    return {
-        "delta_nu": delta_nu,
-        "gamma": gamma,
+    derived.update({
         "dz": dz,
         "n_z": n_z,
-        "n_t": n_t,
-        "frequency_step_hz": frequency_step_hz,
-        "fft_sweep_range_hz": fft_sweep_range_hz,
         "fft_dz": fft_dz,
         "f_beat_max": f_beat_max,
-        "f_nyquist": fs / 2,
-        "linewidth": lw,
         "L_coh": L_coh,
         "length": L,
         "n_cores": n_cores,
-    }
+    })
+    return derived
 
 
 def sweep_period(cfg: dict) -> float:

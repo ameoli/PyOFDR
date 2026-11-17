@@ -410,16 +410,86 @@ class OutputConfig(_Strict):
     path: str | None = None   # None = no file output
 
 
-class RootConfig(_Strict):
+class InstrumentConfig(_Strict):
+    """Interrogator settings, without a fiber model or prescribed perturbations."""
+
     simulation:  SimulationConfig  = Field(default_factory=SimulationConfig)
-    fiber:       FiberConfig       = Field(default_factory=FiberConfig)
     source:      SourceConfig      = Field(default_factory=SourceConfig)
     optics:      OpticsConfig      = Field(default_factory=OpticsConfig)
-    strain:      StrainConfig      = Field(default_factory=StrainConfig)
-    temperature: TemperatureConfig = Field(default_factory=TemperatureConfig)
     detection:   DetectionConfig   = Field(default_factory=DetectionConfig)
     adc:         ADCConfig         = Field(default_factory=ADCConfig)
     output:      OutputConfig      = Field(default_factory=OutputConfig)
+
+    @model_validator(mode="after")
+    def _check_colored_noise_samples(self):
+        src = self.source
+        if src.flicker_noise_Hz > 0 or src.random_walk_noise_Hz > 0:
+            n_t = sweep_sample_count(src.sweep_duration, self.adc.sample_rate)
+            if n_t < 2:
+                raise ValueError(
+                    "source.flicker_noise_Hz and source.random_walk_noise_Hz "
+                    "require at least two samples when enabled; increase "
+                    "source.sweep_duration or adc.sample_rate"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _check_aux_mzi_delay(self):
+        # same bounds AuxMZI.process enforces at runtime, but caught here
+        # so `pyofdr validate` sees them (#92)
+        aux = self.optics.aux_mzi
+        if not aux.enabled:
+            return self
+        fs = self.adc.sample_rate
+        n_tau = int(round(aux.delay * fs))
+        n_t = sweep_sample_count(self.source.sweep_duration, fs)
+        if n_tau < 2:
+            raise ValueError(
+                f"optics.aux_mzi.delay ({aux.delay*1e9:.2f} ns) is too short "
+                f"at adc.sample_rate={fs*1e-6:.1f} MHz (n_tau={n_tau}, need >= 2)"
+            )
+        if n_tau >= n_t:
+            raise ValueError(
+                f"optics.aux_mzi.delay ({aux.delay*1e9:.2f} ns) "
+                f"exceeds the sweep duration"
+            )
+        if n_t - n_tau < 2:
+            raise ValueError("optics.aux_mzi.delay must leave at least two valid samples")
+
+        # The aux model rounds the requested delay to an integer sample lag.
+        src = self.source
+        gamma = (_C / src.center_wavelength**2 * src.sweep_range
+                 / src.sweep_duration)
+        f_aux = gamma * (n_tau / fs)
+        if f_aux >= fs / 2:
+            raise ValueError(
+                f"aux MZI nominal beat {f_aux*1e-6:.6g} MHz reaches or exceeds "
+                f"Nyquist {fs/2*1e-6:.6g} MHz; reduce optics.aux_mzi.delay "
+                "or increase adc.sample_rate"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_backend_available(self):
+        # the Literal catches typos; this catches names that are valid but
+        # not wired up yet (cupy/jax), which used to die mid-pipeline
+        from pyofdr.backends import get_backend
+        try:
+            get_backend(self.simulation.backend)
+        except NotImplementedError as e:
+            raise ValueError(f"simulation.backend '{self.simulation.backend}': {e}") from e
+        return self
+
+
+class RootConfig(InstrumentConfig):
+    """Legacy YAML recipe: instrument settings plus fiber and perturbation data."""
+
+    fiber:       FiberConfig       = Field(default_factory=FiberConfig)
+    strain:      StrainConfig      = Field(default_factory=StrainConfig)
+    temperature: TemperatureConfig = Field(default_factory=TemperatureConfig)
+
+    def instrument(self) -> InstrumentConfig:
+        return InstrumentConfig(**self.model_dump(include=set(InstrumentConfig.model_fields)))
 
     @model_validator(mode="after")
     def _check_marcuse_bends(self):
@@ -484,64 +554,4 @@ class RootConfig(_Strict):
                     f"fiber.fbg_arrays[{i}] at z={g.z} m is "
                     f"beyond fiber.length ({L} m)"
                 )
-        return self
-
-    @model_validator(mode="after")
-    def _check_colored_noise_samples(self):
-        src = self.source
-        if src.flicker_noise_Hz > 0 or src.random_walk_noise_Hz > 0:
-            n_t = sweep_sample_count(src.sweep_duration, self.adc.sample_rate)
-            if n_t < 2:
-                raise ValueError(
-                    "source.flicker_noise_Hz and source.random_walk_noise_Hz "
-                    "require at least two samples when enabled; increase "
-                    "source.sweep_duration or adc.sample_rate"
-                )
-        return self
-
-    @model_validator(mode="after")
-    def _check_aux_mzi_delay(self):
-        # same bounds AuxMZI.process enforces at runtime, but caught here
-        # so `pyofdr validate` sees them (#92)
-        aux = self.optics.aux_mzi
-        if not aux.enabled:
-            return self
-        fs = self.adc.sample_rate
-        n_tau = int(round(aux.delay * fs))
-        n_t = sweep_sample_count(self.source.sweep_duration, fs)
-        if n_tau < 2:
-            raise ValueError(
-                f"optics.aux_mzi.delay ({aux.delay*1e9:.2f} ns) is too short "
-                f"at adc.sample_rate={fs*1e-6:.1f} MHz (n_tau={n_tau}, need >= 2)"
-            )
-        if n_tau >= n_t:
-            raise ValueError(
-                f"optics.aux_mzi.delay ({aux.delay*1e9:.2f} ns) "
-                f"exceeds the sweep duration"
-            )
-        if n_t - n_tau < 2:
-            raise ValueError("optics.aux_mzi.delay must leave at least two valid samples")
-
-        # The aux model rounds the requested delay to an integer sample lag.
-        src = self.source
-        gamma = (_C / src.center_wavelength**2 * src.sweep_range
-                 / src.sweep_duration)
-        f_aux = gamma * (n_tau / fs)
-        if f_aux >= fs / 2:
-            raise ValueError(
-                f"aux MZI nominal beat {f_aux*1e-6:.6g} MHz reaches or exceeds "
-                f"Nyquist {fs/2*1e-6:.6g} MHz; reduce optics.aux_mzi.delay "
-                "or increase adc.sample_rate"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _check_backend_available(self):
-        # the Literal catches typos; this catches names that are valid but
-        # not wired up yet (cupy/jax), which used to die mid-pipeline
-        from pyofdr.backends import get_backend
-        try:
-            get_backend(self.simulation.backend)
-        except NotImplementedError as e:
-            raise ValueError(f"simulation.backend '{self.simulation.backend}': {e}") from e
         return self
