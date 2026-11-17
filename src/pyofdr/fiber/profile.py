@@ -19,7 +19,7 @@ from pyofdr.fiber.index import index_samples_from_normals, index_samples_from_se
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.phase import phase_at_bins
 from pyofdr.fiber.rayleigh import rayleigh_rates_from_segments
-from pyofdr.fiber.reflectors import (attenuation_with_connectors, inject_reflectors,
+from pyofdr.fiber.reflectors import (attenuation_with_connectors, profile_with_reflectors,
                                     reflection_coefficients, reflector_bin)
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
@@ -107,8 +107,8 @@ class FiberGenerator(PipelineStep):
                     derive_seed(self.seed, component="reflectors", core=c))
                 phase = rng.uniform(0.0, 2.0 * math.pi, len(self.reflectors))
                 reflection[c] = reflection_coefficients(self.reflectors, phase)
-            inject_reflectors(profile, z, dz, self.reflectors,
-                              reflection=reflection, xp=xp)
+            profile = profile_with_reflectors(profile, dz, self.reflectors,
+                                              reflection=reflection, xp=xp)
 
         # small-signal n(z) perturbation -- each scatterer at z picks up
         # a round-trip phase from the integrated delta_n up to z. Two

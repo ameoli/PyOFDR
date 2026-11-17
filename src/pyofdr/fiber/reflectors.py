@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 from pyrayleigh import lossless_reflector
-from pyrayleigh.backends import real_arrays
+from pyrayleigh.backends import complex_arrays, real_arrays
 from pyrayleigh.units import db_to_linear
 
 
@@ -30,6 +30,32 @@ def reflector_bin(ref, dz, n_z):
     return idx
 
 
+def profile_with_reflectors(profile, dz, reflectors, *, reflection=None, xp=None):
+    """Return the profile plus fixed-bin point returns, without propagation losses."""
+    parameters = (reflection,) if reflection is not None else tuple(ref["R"] for ref in reflectors)
+    xp, values = complex_arrays(profile, *parameters, xp=None if xp is np else xp)
+    profile = values[0]
+    if profile.ndim != 2:
+        raise ValueError("profile must have shape (n_cores, n_z)")
+    if reflection is not None:
+        reflection = values[1]
+        if reflection.shape != (profile.shape[0], len(reflectors)):
+            raise ValueError("give one reflection coefficient per core and reflector")
+    n_z = profile.shape[1]
+    bins = xp.arange(n_z)
+    for i, ref in enumerate(reflectors):
+        idx = reflector_bin(ref, dz, n_z)
+        if idx < 0 or idx >= n_z:
+            continue
+        if reflection is None:
+            point = lossless_reflector(ref["z"], ref["R"], xp=xp)
+            addition = xp.real(point.r_left)
+        else:
+            addition = reflection[:, i:i + 1]
+        profile = xp.where(bins == idx, profile + addition, profile)
+    return profile
+
+
 def inject_reflectors(
     profile: np.ndarray,
     z: np.ndarray,
@@ -50,19 +76,7 @@ def inject_reflectors(
     if not reflectors:
         return profile
 
-    n_z = profile.shape[-1]
-
-    for i, ref in enumerate(reflectors):
-        R = ref["R"]
-        idx = reflector_bin(ref, dz, n_z)
-        if idx < 0 or idx >= n_z:
-            continue
-        if reflection is None:
-            point = lossless_reflector(ref["z"], R, xp=None if xp is np else xp)
-            profile[:, idx] += xp.real(point.r_left)
-        else:
-            profile[:, idx] += reflection[:, i]
-
+    profile[...] = profile_with_reflectors(profile, dz, reflectors, reflection=reflection, xp=xp)
     return profile
 
 
