@@ -19,7 +19,7 @@ from pyofdr.fiber.index import index_samples_from_normals, index_samples_from_se
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.phase import phase_at_bins
 from pyofdr.fiber.rayleigh import rayleigh_rates_from_segments
-from pyofdr.fiber.reflectors import (apply_connector_losses, inject_reflectors,
+from pyofdr.fiber.reflectors import (attenuation_with_connectors, inject_reflectors,
                                     reflection_coefficients, reflector_bin)
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
@@ -167,7 +167,7 @@ class FiberGenerator(PipelineStep):
 
         # connector insertion losses (step-downs in the envelope)
         if self.reflectors:
-            apply_connector_losses(attenuation, dz, self.reflectors, xp=xp)
+            attenuation = attenuation_with_connectors(attenuation, dz, self.reflectors, xp=xp)
 
         ghosts = None
         if self.multiple_scattering is not None and self.reflectors:

@@ -66,6 +66,30 @@ def inject_reflectors(
     return profile
 
 
+def attenuation_with_connectors(attenuation, dz, reflectors, *, xp=None):
+    """Return the direct-return envelope with connector losses on fixed spatial bins."""
+    xp, values = real_arrays(attenuation,
+                             *(value for ref in reflectors for value in
+                               (ref["R"], ref.get("loss_dB", 0.))),
+                             xp=None if xp is np else xp)
+    attenuation = values[0]
+    if attenuation.ndim != 1:
+        raise ValueError("attenuation must be a vector")
+    n_z = attenuation.shape[0]
+    bins = xp.arange(n_z)
+    for i, ref in enumerate(reflectors):
+        idx = reflector_bin(ref, dz, n_z)
+        if idx < 0 or idx >= n_z:
+            continue
+        reflectance, loss = values[1 + 2*i:3 + 2*i]
+        point = lossless_reflector(ref["z"], reflectance, xp=xp)
+        factor = db_to_linear(-loss, xp=xp)
+        attenuation = xp.where(bins >= idx, attenuation*factor, attenuation)
+        transmission = point.t_left_to_right * point.t_right_to_left
+        attenuation = xp.where(bins > idx, attenuation*transmission, attenuation)
+    return attenuation
+
+
 def apply_connector_losses(
     attenuation: np.ndarray,
     dz: float,
@@ -84,16 +108,7 @@ def apply_connector_losses(
     from that interface sees the loss, but not its own (1-R) transmission.
     Returns from later bins cross the interface twice.
     """
-    n_z = len(attenuation)
-    for ref in reflectors:
-        idx = reflector_bin(ref, dz, n_z)
-        if idx < 0 or idx >= n_z:
-            continue
-        # round-trip amplitude factor for one-way loss_dB
-        array_xp = None if xp is np else xp
-        point = lossless_reflector(ref["z"], ref["R"], xp=array_xp)
-        factor = db_to_linear(-ref.get("loss_dB", 0.0), xp=array_xp)
-        attenuation[idx:] *= factor
-        attenuation[idx + 1:] *= point.t_left_to_right * point.t_right_to_left
-
+    if not reflectors:
+        return attenuation
+    attenuation[...] = attenuation_with_connectors(attenuation, dz, reflectors, xp=xp)
     return attenuation
