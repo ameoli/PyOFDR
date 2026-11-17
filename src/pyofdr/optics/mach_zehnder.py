@@ -26,11 +26,14 @@ import warnings
 from typing import Any
 
 import numpy as np
+from pyrayleigh import MultiCoreResponse, Response
+from pyrayleigh.backends import complex_arrays
 from scipy.fft import next_fast_len
 from scipy.ndimage import map_coordinates
 from scipy.signal import ZoomFFT
 
 from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.config_models import InstrumentConfig, RootConfig
 from pyofdr.core.pipeline import PipelineStep
 from pyofdr.fiber.fbg import weak_fbg_signal
 from pyofdr.optics.components import Circulator
@@ -42,13 +45,20 @@ class MachZehnder(PipelineStep):
 
     name = "optics"
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any] | InstrumentConfig) -> None:
+        if isinstance(config, InstrumentConfig):
+            if not isinstance(config, RootConfig):
+                self.config_model = InstrumentConfig
+            config = config.model_dump()
         super().__init__(config)
         self.splitting_ratio = self.config["optics"]["splitting_ratio"]
         circ_cfg = self.config["optics"].get("circulator", {})
         self.circulator = Circulator(**circ_cfg)
 
         src = self.config["source"]
+        self.linewidth = src["linewidth"]
+        if "fiber" not in self.config:
+            return
         self.nl_a2 = src["sweep_nonlinearity_a2"]
         self.nl_a3 = src["sweep_nonlinearity_a3"]
         self.ripple_amp = src["sweep_ripple_amplitude"]
@@ -72,17 +82,20 @@ class MachZehnder(PipelineStep):
             or self._has_dispersion   # GVD reuses the time-warp engine
             or self._has_slow_phase_noise   # so does coloured FM noise (#82)
         )
-        self.linewidth = src["linewidth"]
         self.n_core = self.config["fiber"]["n_core"]
         self.fbg_arrays = self.config["fiber"].get("fbg_arrays", [])
         self._beat_transform = None
         self._beat_transform_key = None
 
     def process(self, acq: Acquisition) -> Acquisition:
+        if acq.fiber_response is not None:
+            return self._process_response(acq)
         if acq.fiber_profile is None:
             raise RuntimeError("Optics: fiber_profile not set")
         if acq.E_source is None:
             raise RuntimeError("Optics: E_source not set")
+        if "fiber" not in self.config:
+            raise RuntimeError("Optics: instrument-only settings require a fiber_response")
 
         acq.fft_dz = C / (2 * self.n_core * acq.fft_sweep_range_hz)
         xp = self.bk.xp
@@ -186,6 +199,34 @@ class MachZehnder(PipelineStep):
                      phase_noise_warp=self._has_slow_phase_noise,
                      coherence_rolloff=self.linewidth > 0,
                      n_fbgs=len(self.fbg_arrays))
+        return acq
+
+    def _process_response(self, acq):
+        """Mix the native quasistatic return with the zero-delay reference."""
+        response = acq.fiber_response
+        if not isinstance(response, (Response, MultiCoreResponse)):
+            raise TypeError("Optics: fiber_response must be a PyRayleigh response")
+        if self.linewidth > 0:
+            raise NotImplementedError("native interferometry currently requires source.linewidth=0")
+        if acq.E_source is None:
+            raise RuntimeError("Optics: E_source not set")
+        xp, (reflection,) = complex_arrays(response.reflection)
+        source = xp.asarray(acq.E_source, dtype=xp.complex128)
+        if source.shape != (acq.n_samples,) or response.probe.shape != source.shape:
+            raise ValueError("Optics: response and source must match the acquisition samples")
+        if reflection.ndim == 1:
+            reflection = xp.reshape(reflection, (1, acq.n_samples))
+        eta = self.splitting_ratio
+        prefactor = 2.0 * math.sqrt(eta * (1.0 - eta))
+        returned = (self.circulator.round_trip_transmission
+                    * (reflection + self.circulator.return_loss)
+                    + self.circulator.isolation)
+        acq.photocurrent_main = prefactor * xp.abs(source)**2 * xp.real(returned)
+        acq.add_log("optics", topology="mach_zehnder", native_response=True,
+                    n_cores=reflection.shape[0],
+                    circulator_IL_dB=self.circulator.insertion_loss_dB,
+                    circulator_iso_dB=self.circulator.isolation_dB,
+                    circulator_RL_dB=self.circulator.return_loss_dB)
         return acq
 
     def _apply_time_warp(self, weighted, acq):

@@ -32,11 +32,11 @@ from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config_models import ADC_TABLE_MAX_BITS
-from pyofdr.core.pipeline import PipelineStep
+from pyofdr.core.pipeline import InstrumentStep
 from pyofdr.utils.seeding import derive_seed
 
 
-class ADC(PipelineStep):
+class ADC(InstrumentStep):
 
     name = "adc"
 

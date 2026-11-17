@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 from pyofdr.backends import get_backend
 from pyofdr.core.acquisition import Acquisition
-from pyofdr.core.config_models import RootConfig
+from pyofdr.core.config_models import InstrumentConfig, RootConfig
 
 class PipelineStep(ABC):
 
@@ -21,3 +21,14 @@ class PipelineStep(ABC):
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}>"
+
+
+class InstrumentStep(PipelineStep):
+    config_model = InstrumentConfig
+
+    def __init__(self, config: dict[str, Any] | InstrumentConfig) -> None:
+        if isinstance(config, InstrumentConfig):
+            config = config.model_dump(include=set(InstrumentConfig.model_fields))
+        elif any(key in config for key in ("fiber", "strain", "temperature")):
+            config = RootConfig(**config).instrument().model_dump()
+        super().__init__(config)

@@ -30,12 +30,12 @@ import math
 from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
-from pyofdr.core.pipeline import PipelineStep
+from pyofdr.core.pipeline import InstrumentStep
 from pyofdr.utils.constants import E_CHARGE
 from pyofdr.utils.seeding import derive_seed
 
 
-class Detector(PipelineStep):
+class Detector(InstrumentStep):
 
     name = "detection"
 

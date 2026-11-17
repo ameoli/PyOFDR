@@ -26,8 +26,8 @@ from pyrayleigh import Probe
 from pyrayleigh.backends import real_arrays
 
 from pyofdr.core.acquisition import Acquisition
-from pyofdr.core.config_models import InstrumentConfig, RootConfig
-from pyofdr.core.pipeline import PipelineStep
+from pyofdr.core.config_models import InstrumentConfig
+from pyofdr.core.pipeline import InstrumentStep
 from pyofdr.source.phase_noise import frequency_noise
 from pyofdr.utils.constants import C
 from pyofdr.utils.seeding import derive_seed
@@ -35,16 +35,11 @@ from pyofdr.utils.sampling import sweep_sample_count
 from pyofdr.utils.units import wavelength_range_to_freq_range
 
 
-class SweptLaser(PipelineStep):
+class SweptLaser(InstrumentStep):
 
     name = "source"
-    config_model = InstrumentConfig
 
     def __init__(self, config: dict[str, Any] | InstrumentConfig) -> None:
-        if isinstance(config, InstrumentConfig):
-            config = config.model_dump(include=set(InstrumentConfig.model_fields))
-        elif any(key in config for key in ("fiber", "strain", "temperature")):
-            config = RootConfig(**config).instrument().model_dump()
         super().__init__(config)
         source = self.config["source"]
 

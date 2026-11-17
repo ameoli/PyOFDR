@@ -77,6 +77,8 @@ def reflectogram_from_acq(acq, core=0, **kwargs):
     beat = acq.digital_main[core].astype(np.float64)
     # Older/manual acquisitions may not carry the sampling calibration.
     dz = acq.fft_dz if acq.fft_dz > 0 else acq.dz
+    if not math.isfinite(dz) or dz <= 0:
+        raise ValueError("a positive spatial calibration is required; set acq.fft_dz")
     return fft_reflectogram(beat, dz, **kwargs)
 
 

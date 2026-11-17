@@ -9,10 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
-from pyofdr.core.pipeline import PipelineStep
+from pyofdr.core.pipeline import InstrumentStep
 
 
-class AntiAliasFilter(PipelineStep):
+class AntiAliasFilter(InstrumentStep):
 
     name = "filter"
 

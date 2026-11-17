@@ -26,10 +26,10 @@ import math
 from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
-from pyofdr.core.pipeline import PipelineStep
+from pyofdr.core.pipeline import InstrumentStep
 
 
-class AuxMZI(PipelineStep):
+class AuxMZI(InstrumentStep):
 
     name = "aux_mzi"
 
