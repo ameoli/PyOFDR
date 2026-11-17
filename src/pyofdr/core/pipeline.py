@@ -8,12 +8,10 @@ from pyofdr.core.config_models import RootConfig
 class PipelineStep(ABC):
 
     name: str = "unnamed"
+    config_model = RootConfig
 
     def __init__(self, config: dict[str, Any]) -> None:
-        # validate up front so steps can read fields without re-specifying
-        # defaults. tests that pass partial dicts still work because every
-        # section in RootConfig has a default_factory.
-        self.config = RootConfig(**config).model_dump()
+        self.config = self.config_model(**config).model_dump()
         self.bk = get_backend(self.config["simulation"]["backend"])
 
     @abstractmethod

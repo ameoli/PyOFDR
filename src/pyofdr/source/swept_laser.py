@@ -23,6 +23,7 @@ import math
 from typing import Any
 
 from pyofdr.core.acquisition import Acquisition
+from pyofdr.core.config_models import InstrumentConfig, RootConfig
 from pyofdr.core.pipeline import PipelineStep
 from pyofdr.source.phase_noise import frequency_noise
 from pyofdr.utils.constants import C
@@ -34,8 +35,13 @@ from pyofdr.utils.units import wavelength_range_to_freq_range
 class SweptLaser(PipelineStep):
 
     name = "source"
+    config_model = InstrumentConfig
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any] | InstrumentConfig) -> None:
+        if isinstance(config, InstrumentConfig):
+            config = config.model_dump(include=set(InstrumentConfig.model_fields))
+        elif any(key in config for key in ("fiber", "strain", "temperature")):
+            config = RootConfig(**config).instrument().model_dump()
         super().__init__(config)
         source = self.config["source"]
 
@@ -135,7 +141,6 @@ class SweptLaser(PipelineStep):
         acq.n_samples = n_samples
         acq.frequency_step_hz = self.gamma * dt
         acq.fft_sweep_range_hz = n_samples * acq.frequency_step_hz
-        acq.fft_dz = C / (2 * self.config["fiber"]["n_core"] * acq.fft_sweep_range_hz)
         acq.nu_inst = nu_inst
         acq.nu_noise = nu_noise_slow
         acq.E_source = E

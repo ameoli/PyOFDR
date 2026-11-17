@@ -84,6 +84,7 @@ class MachZehnder(PipelineStep):
         if acq.E_source is None:
             raise RuntimeError("Optics: E_source not set")
 
+        acq.fft_dz = C / (2 * self.n_core * acq.fft_sweep_range_hz)
         xp = self.bk.xp
         n_c, n_z = acq.fiber_profile.shape
         eta = self.splitting_ratio
