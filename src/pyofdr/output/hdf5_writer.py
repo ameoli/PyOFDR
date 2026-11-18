@@ -80,6 +80,14 @@ class HDF5Writer:
         if "fiber" in self._file:
             return
         grp = self._file.create_group("fiber")
+        if acq.fiber_response is not None and acq.fiber_model is not None:
+            model = acq.fiber_model
+            cores = getattr(model, "cores", (model,))
+            grp.attrs["engine"] = "pyrayleigh"
+            grp.attrs["fiber_ids"] = json.dumps([core.fiber_id for core in cores])
+            grp.attrs["n_cores"] = len(cores)
+            for name in ("length", "reference_temperature", "frequency_min", "frequency_max"):
+                grp.attrs[name] = getattr(model, name)
         if acq.z is not None:
             grp.create_dataset("z", data=np.asarray(acq.z))
         if acq.attenuation_envelope is not None:
@@ -99,6 +107,16 @@ class HDF5Writer:
         grp.attrs["frequency_step_hz"] = acq.frequency_step_hz
         grp.attrs["fft_sweep_range_hz"] = acq.fft_sweep_range_hz
         grp.attrs["fft_dz"] = acq.fft_dz
+
+        if acq.fiber_response is not None:
+            response = acq.fiber_response
+            native = grp.create_group("fiber_response")
+            for name in ("reflection", "transmission"):
+                native.create_dataset(name, data=np.asarray(getattr(response, name)),
+                                      compression="gzip", compression_opts=4)
+            native.create_dataset("frequency", data=np.asarray(response.probe.frequency))
+            if response.probe.time is not None:
+                native.create_dataset("time", data=np.asarray(response.probe.time))
 
         if acq.strain_field is not None:
             grp.create_dataset("strain_field",  data=np.asarray(acq.strain_field))
