@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Sequence
 
 import numpy as np
 from pyrayleigh import Fiber, FiberState, MultiCoreFiber, MultiCoreResponse, Response
@@ -20,7 +21,7 @@ class Acquisition:
     ghost_profile: np.ndarray | None = None       # (n_cores, n_z), already attenuated
 
     fiber_model: Fiber | MultiCoreFiber | None = None
-    fiber_state: FiberState | None = None
+    fiber_state: FiberState | Sequence[FiberState | None] | None = None
     fiber_response: Response | MultiCoreResponse | None = None
 
     t: np.ndarray | None = None       # (n_t,), time samples [s]

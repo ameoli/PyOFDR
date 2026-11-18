@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from contextlib import nullcontext
+from collections.abc import Sequence
 from numbers import Real
 
 import numpy as np
@@ -12,13 +13,13 @@ from pyofdr import __version__
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config import compute_derived, compute_instrument_derived
 from pyofdr.core.config_models import InstrumentConfig, RootConfig
-from pyofdr.core.interrogation import interrogate
+from pyofdr.core.interrogation import _state_input, interrogate
 logger = logging.getLogger(__name__)
 
 
 def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *,
                  fiber: Fiber | MultiCoreFiber | None = None,
-                 state: FiberState | None = None, max_order=1,
+                 state: FiberState | Sequence[FiberState | None] | None = None, max_order=1,
                  fft_dz: float | None = None) -> list[Acquisition]:
     """Run one or more sweeps and return the list of Acquisitions.
 
@@ -36,6 +37,8 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
     fiber, state
         External PyRayleigh objects, reused across all sweeps. Time histories
         are sampled in laboratory time. Native sweeps require linewidth zero.
+        Independent cores can receive a sequence of states in core order.
+        The sequence is copied once; PyRayleigh checks coupled-core constraints.
     max_order : int
         Point reflection order for the supplied fiber (1, 2 or 3).
     fft_dz : float or None
@@ -63,8 +66,7 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
     if native:
         if not isinstance(fiber, (Fiber, MultiCoreFiber)):
             raise TypeError("fiber must be a PyRayleigh Fiber or MultiCoreFiber")
-        if state is not None and not isinstance(state, FiberState):
-            raise TypeError("state must be a PyRayleigh FiberState or None")
+        state = _state_input(state)
         if fft_dz is not None and (isinstance(fft_dz, bool) or not isinstance(fft_dz, Real)
                                    or not math.isfinite(fft_dz) or fft_dz <= 0):
             raise ValueError("fft_dz must be a finite positive spatial spacing [m]")
