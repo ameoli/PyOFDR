@@ -1,4 +1,7 @@
-"""Run with: python examples/native_fiber.py --output out/native.h5"""
+"""Run with: python examples/native_fiber.py --output out/native.h5
+
+Write sweeps to HDF5, then read the recorded data for analysis.
+"""
 
 import argparse
 from pathlib import Path
@@ -11,6 +14,7 @@ from pyrayleigh.units import attenuation_from_db_per_km, db_to_linear
 from pyofdr.analysis.demodulation import reflectogram_from_acq
 from pyofdr.core.campaign import run_campaign
 from pyofdr.core.config import compute_instrument_derived, load_instrument_config
+from pyofdr.output.hdf5_reader import load_sweep
 from pyofdr.utils.constants import C
 
 
@@ -34,9 +38,12 @@ def main(output_path):
     output_path = Path(output_path)
     reference_path = output_path.with_name(output_path.stem+"_reference"+output_path.suffix)
     cfg["output"]["path"] = str(reference_path)
-    reference = run_campaign(cfg, fiber=fiber, fft_dz=spacing)[0]
+    run_campaign(cfg, keep_acquisitions=False, fiber=fiber, fft_dz=spacing)
     cfg["output"]["path"] = str(output_path)
-    strained = run_campaign(cfg, fiber=fiber, state=state, fft_dz=spacing)[0]
+    run_campaign(cfg, keep_acquisitions=False, fiber=fiber, state=state, fft_dz=spacing)
+
+    reference = load_sweep(reference_path)
+    strained = load_sweep(output_path)
 
     H_ref, z = reflectogram_from_acq(reference)
     H_strained, _ = reflectogram_from_acq(strained)
