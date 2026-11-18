@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from pyrayleigh import PointReflector
+from pyrayleigh import PointReflector, crosstalk_from_phases
 from pyrayleigh.backends import real_arrays
 
 from pyofdr.core.acquisition import Acquisition
@@ -15,7 +15,6 @@ from pyofdr.fiber.attenuation import (
     round_trip_attenuation, round_trip_attenuation_varying,
 )
 from pyofdr.fiber.bends import bend_loss_to_positions, bend_loss_total_dB
-from pyofdr.fiber.crosstalk import apply_crosstalk
 from pyofdr.fiber.index import index_samples_from_normals, index_samples_from_segments
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.model import build_fiber
@@ -47,7 +46,6 @@ class FiberGenerator(PipelineStep):
             raise ValueError("discrete reflectors must occupy distinct spatial bins")
         self.index_segments = fiber.get("index_segments", [])
         self.index_fluctuations = fiber.get("index_fluctuations", None)
-        self.crosstalk = fiber.get("crosstalk", None)
         self.multiple_scattering = fiber.get("multiple_scattering", None)
         self.seed = self.config["simulation"]["seed"]
         self.center_wl = source["center_wavelength"]
@@ -131,15 +129,11 @@ class FiberGenerator(PipelineStep):
 
         # MCF core-to-core crosstalk. Applied after all per-core phase
         # modifications so whatever each core carries gets mixed.
-        if self.crosstalk is not None and self.n_cores > 1:
-            rng_xt = self.bk.random_generator(
-                derive_seed(self.seed, component="crosstalk"))
-            profile = apply_crosstalk(
-                profile, z,
-                self.crosstalk["xt_dB_per_km"],
-                self.crosstalk["topology"],
-                rng_xt, xp=xp,
-            )
+        coupling = model.crosstalk
+        if coupling is not None:
+            phases = coupling.phases[:, :n_z]
+            profile = crosstalk_from_phases(profile, z, model.xt_db_per_km, phases,
+                                           topology=coupling.topology, xp=native_xp)
 
         # Base attenuation, including any per-segment overrides.
         if self.attenuation_segments:
@@ -173,13 +167,9 @@ class FiberGenerator(PipelineStep):
             # Index/strain/temperature still use the apparent-bin phase.
             if phi_n is not None:
                 ghosts *= xp.exp(1j * phi_n)
-            if self.crosstalk is not None and self.n_cores > 1:
-                rng_xt = self.bk.random_generator(
-                    derive_seed(self.seed, component="crosstalk"))
-                ghosts = apply_crosstalk(
-                    ghosts, z, self.crosstalk["xt_dB_per_km"],
-                    self.crosstalk["topology"], rng_xt, xp=xp,
-                )
+            if coupling is not None:
+                ghosts = crosstalk_from_phases(ghosts, z, model.xt_db_per_km, phases,
+                                              topology=coupling.topology, xp=native_xp)
 
         acq.z = z
         acq.dz = dz
