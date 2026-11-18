@@ -11,6 +11,7 @@ Layout:
     /fiber/attenuation      round-trip attenuation envelope
     /fiber/strain_field     first sweep's strain eps(z), if present
     /fiber/temperature_field first sweep's applied dT(z) [K], if present
+    /fiber/state            prescribed native fields and histories from the first sweep
     /sweeps/0000/digital_main   (n_cores, n_t) int16 (int32 when adc.bits > 16)
     /sweeps/0000/analog_main    (n_cores, n_t) float32
     /sweeps/0000/aux_signal     (n_t,) float32, present iff aux MZI enabled
@@ -22,15 +23,33 @@ Layout:
 from __future__ import annotations
 
 import json
+from dataclasses import fields
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
 import h5py
 import numpy as np
+from pyrayleigh import FiberState
 
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.utils.seeding import SEED_SCHEME
+
+
+def _write_state(group, state):
+    group.attrs["reference"] = state is None
+    if state is None:
+        return
+    for item in fields(state):
+        component = group.create_group(item.name)
+        for index, term in enumerate(getattr(state, item.name).terms):
+            node = component.create_group(f"{index:04d}")
+            for name in ("positions", "values"):
+                node.create_dataset(name, data=np.asarray(getattr(term.profile, name)))
+            if term.history is not None:
+                history = node.create_group("history")
+                for name in ("times", "values"):
+                    history.create_dataset(name, data=np.asarray(getattr(term.history, name)))
 
 
 class HDF5Writer:
@@ -88,6 +107,21 @@ class HDF5Writer:
             grp.attrs["n_cores"] = len(cores)
             for name in ("length", "reference_temperature", "frequency_min", "frequency_max"):
                 grp.attrs[name] = getattr(model, name)
+            state_group = grp.create_group("state")
+            shared = acq.fiber_state is None or isinstance(acq.fiber_state, FiberState)
+            state_group.attrs["per_core"] = not shared
+            if shared:
+                _write_state(state_group, acq.fiber_state)
+            else:
+                saved = {}
+                for core, state in enumerate(acq.fiber_state):
+                    key = f"{core:04d}"
+                    if id(state) in saved:
+                        state_group[key] = saved[id(state)]
+                    else:
+                        node = state_group.create_group(key)
+                        _write_state(node, state)
+                        saved[id(state)] = node
         if acq.z is not None:
             grp.create_dataset("z", data=np.asarray(acq.z))
         if acq.attenuation_envelope is not None:
