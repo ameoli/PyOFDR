@@ -5,6 +5,7 @@ import math
 from contextlib import nullcontext
 from numbers import Real
 
+import numpy as np
 from pyrayleigh import Fiber, FiberState, MultiCoreFiber
 
 from pyofdr import __version__
@@ -122,6 +123,9 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
         for i in range(n_sweeps):
             if native:
                 acq = interrogate(settings, fiber, state, sweep_index=i, max_order=max_order)
+                for name in ("reflection", "transmission"):
+                    if not np.all(np.isfinite(getattr(acq.fiber_response, name))):
+                        raise ValueError(f"PyRayleigh {name} contains non-finite values in sweep {i}")
                 if fft_dz is not None:
                     acq.fft_dz = fft_dz
             else:
