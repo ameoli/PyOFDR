@@ -5,6 +5,8 @@ Run as::
     pyofdr info     configs/ofdr_basic.yaml
     pyofdr validate configs/ofdr_basic.yaml
     pyofdr run      configs/ofdr_basic.yaml
+    pyofdr info --instrument configs/instrument_native.yaml
+    pyofdr validate --instrument configs/instrument_native.yaml
 """
 
 from __future__ import annotations
@@ -12,7 +14,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from pyofdr.core.config import load_config, print_info
+from pyofdr.core.config import (load_config, load_instrument_config, print_info,
+                                print_instrument_info)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -25,6 +28,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_val = sub.add_parser("validate", help="load + validate a config, exit 0 if ok")
     p_val.add_argument("config", help="path to YAML config")
+
+    for command in (p_info, p_val):
+        command.add_argument("--instrument", action="store_true",
+                             help="read instrument-only settings without a fiber")
 
     p_run = sub.add_parser("run", help="run a simulation from a config")
     p_run.add_argument("config", help="path to YAML config")
@@ -39,18 +46,10 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
-    if args.cmd == "info":
+    if args.cmd in ("info", "validate"):
+        loader = load_instrument_config if args.instrument else load_config
         try:
-            cfg = load_config(args.config)
-        except FileNotFoundError as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 2
-        print_info(cfg)
-        return 0
-
-    if args.cmd == "validate":
-        try:
-            load_config(args.config)
+            cfg = loader(args.config)
         except FileNotFoundError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
@@ -59,7 +58,13 @@ def main(argv: list[str] | None = None) -> int:
             # traceback on the user -- they just want to know it's broken.
             print(f"invalid config: {e}", file=sys.stderr)
             return 1
-        print(f"{args.config}: OK")
+        if args.cmd == "info":
+            if args.instrument:
+                print_instrument_info(cfg)
+            else:
+                print_info(cfg)
+        else:
+            print(f"{args.config}: OK")
         return 0
 
     if args.cmd == "run":

@@ -96,6 +96,22 @@ def sweep_period(cfg: dict) -> float:
     return cfg["source"]["sweep_duration"]
 
 
+def print_instrument_info(cfg: dict | InstrumentConfig) -> None:
+    """Summarize the source and ADC without a spatial calibration."""
+    config = cfg if isinstance(cfg, InstrumentConfig) else InstrumentConfig(**cfg)
+    d = compute_instrument_derived(config)
+    print("PyOFDR instrument configuration:")
+    print(f"  Center wavelength:  {config.source.center_wavelength*1e9:.3f} nm")
+    print(f"  Sweep duration:     {config.source.sweep_duration*1e6:.3f} us")
+    print(f"  Sweep range:        {d['delta_nu']*1e-9:.1f} GHz")
+    print(f"  Chirp rate:         {d['gamma']:.6g} Hz/s")
+    print(f"  Time samples:       {d['n_t']}")
+    print(f"  ADC sample rate:    {config.adc.sample_rate*1e-6:.1f} MS/s")
+    print(f"  Frequency step:     {d['frequency_step_hz']*1e-6:.3f} MHz")
+    print(f"  Nyquist:            {d['f_nyquist']*1e-6:.1f} MHz")
+    print(f"  Linewidth:          {d['linewidth']*1e-3:.1f} kHz")
+
+
 def print_info(cfg: dict) -> None:
     """Print a summary of the configuration."""
     d = compute_derived(cfg)
