@@ -1,0 +1,34 @@
+# Instrument settings for examples/native_fiber.py.
+simulation:
+  seed: 123
+  backend: numpy
+  n_sweeps: 1
+
+source:
+  center_wavelength: "1550 nm"
+  sweep_range: "1 nm"
+  sweep_duration: "100 us"
+  power: "10 mW"
+  linewidth: 0
+
+optics:
+  splitting_ratio: 0.5
+  circulator:
+    insertion_loss_dB: 0.7
+    isolation_dB: 80
+    return_loss_dB: 80
+
+detection:
+  balanced: true
+  responsivity: 0.9
+  bandwidth: "20 MHz"
+  filter_order: 4
+  shot_noise: false
+  thermal_nep: 0
+  dark_current: 0
+
+adc:
+  bits: 16
+  sample_rate: "50 MHz"
+  voltage_range: "2 V"
+  input_impedance: "50 ohm"
