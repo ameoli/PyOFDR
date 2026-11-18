@@ -134,7 +134,11 @@ class FiberGenerator(PipelineStep):
 
         # connector insertion losses (step-downs in the envelope)
         if self.reflectors:
-            attenuation = attenuation_with_connectors(attenuation, dz, self.reflectors, xp=xp)
+            transmission = xp.stack([point.t_left_to_right * point.t_right_to_left
+                                     for point in model.cores[0].elements
+                                     if isinstance(point, PointReflector)])
+            attenuation = attenuation_with_connectors(attenuation, dz, self.reflectors,
+                                                       transmission=transmission, xp=xp)
 
         ghosts = None
         if self.multiple_scattering is not None and self.reflectors:

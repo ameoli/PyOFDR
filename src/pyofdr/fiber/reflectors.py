@@ -80,15 +80,21 @@ def inject_reflectors(
     return profile
 
 
-def attenuation_with_connectors(attenuation, dz, reflectors, *, xp=None):
-    """Return the direct-return envelope with connector losses on fixed spatial bins."""
+def attenuation_with_connectors(attenuation, dz, reflectors, *, transmission=None, xp=None):
+    """Envelope on fixed bins; transmission gives real round-trip factors with insertion loss."""
+    parameters = () if transmission is None else (transmission,)
     xp, values = real_arrays(attenuation,
                              *(value for ref in reflectors for value in
                                (ref["R"], ref.get("loss_dB", 0.))),
+                             *parameters,
                              xp=None if xp is np else xp)
     attenuation = values[0]
     if attenuation.ndim != 1:
         raise ValueError("attenuation must be a vector")
+    if transmission is not None:
+        transmission = values[-1]
+        if transmission.shape != (len(reflectors),):
+            raise ValueError("give one round-trip transmission per reflector")
     n_z = attenuation.shape[0]
     bins = xp.arange(n_z)
     for i, ref in enumerate(reflectors):
@@ -96,11 +102,15 @@ def attenuation_with_connectors(attenuation, dz, reflectors, *, xp=None):
         if idx < 0 or idx >= n_z:
             continue
         reflectance, loss = values[1 + 2*i:3 + 2*i]
-        point = lossless_reflector(ref["z"], reflectance, xp=xp)
         factor = db_to_linear(-loss, xp=xp)
-        attenuation = xp.where(bins >= idx, attenuation*factor, attenuation)
-        transmission = point.t_left_to_right * point.t_right_to_left
-        attenuation = xp.where(bins > idx, attenuation*transmission, attenuation)
+        if transmission is None:
+            point = lossless_reflector(ref["z"], reflectance, xp=xp)
+            attenuation = xp.where(bins >= idx, attenuation*factor, attenuation)
+            passed = point.t_left_to_right * point.t_right_to_left
+        else:
+            attenuation = xp.where(bins == idx, attenuation*factor, attenuation)
+            passed = transmission[i]
+        attenuation = xp.where(bins > idx, attenuation*passed, attenuation)
     return attenuation
 
 
