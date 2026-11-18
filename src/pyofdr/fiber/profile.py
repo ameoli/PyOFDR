@@ -15,14 +15,12 @@ from pyofdr.fiber.attenuation import (
     round_trip_attenuation, round_trip_attenuation_varying,
 )
 from pyofdr.fiber.bends import bend_loss_to_positions, bend_loss_total_dB
-from pyofdr.fiber.index import index_samples_from_normals, index_samples_from_segments
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
 from pyofdr.fiber.model import build_fiber
 from pyofdr.fiber.phase import phase_at_bins
 from pyofdr.fiber.reflectors import (attenuation_with_connectors, profile_with_reflectors,
                                     reflector_bin)
 from pyofdr.utils.constants import C
-from pyofdr.utils.seeding import derive_seed
 from pyofdr.utils.units import wavelength_range_to_freq_range
 
 
@@ -44,10 +42,7 @@ class FiberGenerator(PipelineStep):
         self.reflectors = sorted(fiber.get("reflectors", []), key=lambda r: r["z"])
         if len({ref["z"] for ref in self.reflectors}) != len(self.reflectors):
             raise ValueError("discrete reflectors must occupy distinct spatial bins")
-        self.index_segments = fiber.get("index_segments", [])
-        self.index_fluctuations = fiber.get("index_fluctuations", None)
         self.multiple_scattering = fiber.get("multiple_scattering", None)
-        self.seed = self.config["simulation"]["seed"]
         self.center_wl = source["center_wavelength"]
 
         # we need the sweep range to compute dz
@@ -101,28 +96,13 @@ class FiberGenerator(PipelineStep):
             profile = profile_with_reflectors(profile, dz, self.reflectors,
                                               reflection=reflection, xp=xp)
 
-        # small-signal n(z) perturbation -- each scatterer at z picks up
-        # a round-trip phase from the integrated delta_n up to z. Two
-        # contributions: deterministic segments (#68) plus stochastic OU
-        # fluctuations (partial #33). Valid when |delta_n/n_core| is
-        # small enough that the dz grid doesn't need to move (full OPL
-        # treatment is the rest of #33).
-        delta_n = None
-        if self.index_segments:
-            delta_n = index_samples_from_segments(self.index_segments, z)
-
-        if (self.index_fluctuations is not None
-                and self.index_fluctuations["sigma"] > 0):
-            sigma  = self.index_fluctuations["sigma"]
-            L_corr = self.index_fluctuations["correlation_length"]
-            rng_n = self.bk.random_generator(
-                derive_seed(self.seed, component="index_fluctuations"))
-            eta = rng_n.standard_normal(n_z)
-            dn_rand = index_samples_from_normals(eta, dz, sigma, L_corr)
-            delta_n = dn_rand if delta_n is None else delta_n + dn_rand
-
+        index = model.cores[0].index_perturbation
         phi_n = None
-        if delta_n is not None:
+        if index is not None:
+            # Configured index profiles are steps, using their right-hand values.
+            columns = index.positions.searchsorted(z, side="right") - 1
+            inside = (z >= index.positions[0]) & (z <= index.positions[-1])
+            delta_n = xp.where(inside, index.values[columns], 0.)
             k0 = 2.0 * math.pi / self.center_wl
             phi_n = phase_at_bins(delta_n, dz, 2.0 * k0, xp)
             profile = profile * xp.exp(1j * phi_n)
