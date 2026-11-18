@@ -134,9 +134,10 @@ class FiberGenerator(PipelineStep):
 
         # connector insertion losses (step-downs in the envelope)
         if self.reflectors:
+            points = [point for point in model.cores[0].elements if isinstance(point, PointReflector)]
+            forward_transmission = xp.stack([point.t_left_to_right for point in points])
             transmission = xp.stack([point.t_left_to_right * point.t_right_to_left
-                                     for point in model.cores[0].elements
-                                     if isinstance(point, PointReflector)])
+                                     for point in points])
             attenuation = attenuation_with_connectors(attenuation, dz, self.reflectors,
                                                        transmission=transmission, xp=xp)
 
@@ -146,6 +147,7 @@ class FiberGenerator(PipelineStep):
             add_ghost_reflections(
                 ghosts, dz, self.reflectors, reflection=reflection,
                 loss_to_z=loss_to_z,
+                forward_transmission=forward_transmission,
                 max_order=self.multiple_scattering["max_order"], xp=xp,
             )
             # Index/strain/temperature still use the apparent-bin phase.
