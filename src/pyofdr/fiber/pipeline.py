@@ -30,9 +30,11 @@ class FiberModel(PipelineStep):
             raise RuntimeError("FiberModel: z/dz not set (run FiberGenerator first)")
         xp, _ = real_arrays(acq.z)
         if self._model is None:
-            self._model = build_fiber(self.config, cell_length=acq.dz,
-                                      reference_temperature=self.reference_temperature,
-                                      frequency_min=self.frequency_min, frequency_max=self.frequency_max, xp=xp)
+            self._model = acq.fiber_model
+            if self._model is None or self._model.reference_temperature != self.reference_temperature:
+                self._model = build_fiber(self.config, cell_length=acq.dz,
+                                          reference_temperature=self.reference_temperature,
+                                          frequency_min=self.frequency_min, frequency_max=self.frequency_max, xp=xp)
             self._dz = acq.dz
         sample = self._model.cores[0].rayleigh
         positions = acq.z

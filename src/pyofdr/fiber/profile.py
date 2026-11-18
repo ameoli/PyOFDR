@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from pyrayleigh import rayleigh_coefficients_from_normals
+from pyrayleigh.backends import real_arrays
 
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.pipeline import PipelineStep
@@ -17,8 +17,8 @@ from pyofdr.fiber.bends import bend_loss_to_positions, bend_loss_total_dB
 from pyofdr.fiber.crosstalk import apply_crosstalk
 from pyofdr.fiber.index import index_samples_from_normals, index_samples_from_segments
 from pyofdr.fiber.multiple_scattering import add_ghost_reflections
+from pyofdr.fiber.model import build_fiber
 from pyofdr.fiber.phase import phase_at_bins
-from pyofdr.fiber.rayleigh import rayleigh_rates_from_segments
 from pyofdr.fiber.reflectors import (attenuation_with_connectors, profile_with_reflectors,
                                     reflection_coefficients, reflector_bin)
 from pyofdr.utils.constants import C
@@ -38,12 +38,12 @@ class FiberGenerator(PipelineStep):
         self.length = fiber["length"]
         self.n_core = fiber["n_core"]
         self.n_cores = fiber["n_cores"]
-        self.rayleigh_dB = fiber["rayleigh_coefficient_dB"]
-        self.rayleigh_segments = fiber.get("rayleigh_segments", [])
         self.attenuation_dB_km = fiber["attenuation_dB_per_km"]
         self.attenuation_segments = fiber.get("attenuation_segments", [])
         self.bends = fiber.get("bends", [])
         self.reflectors = sorted(fiber.get("reflectors", []), key=lambda r: r["z"])
+        if len({ref["z"] for ref in self.reflectors}) != len(self.reflectors):
+            raise ValueError("discrete reflectors must occupy distinct spatial bins")
         self.index_segments = fiber.get("index_segments", [])
         self.index_fluctuations = fiber.get("index_fluctuations", None)
         self.crosstalk = fiber.get("crosstalk", None)
@@ -61,6 +61,7 @@ class FiberGenerator(PipelineStep):
         self._cached_profile = None
         self._cached_atten = None
         self._cached_ghosts = None
+        self._cached_model = None
 
     def process(self, acq: Acquisition) -> Acquisition:
         if self._cached_profile is not None:
@@ -70,30 +71,21 @@ class FiberGenerator(PipelineStep):
             acq.fiber_profile = self._cached_profile
             acq.attenuation_envelope = self._cached_atten
             acq.ghost_profile = self._cached_ghosts
+            acq.fiber_model = self._cached_model
             return acq
 
         xp = self.bk.xp
 
         # Spatial resolution: dz = c / (2 * n * delta_nu)
         dz = C / (2.0 * self.n_core * self.sweep_range_hz)
-        n_z = int(math.ceil(self.length / dz))
-        z = xp.arange(n_z) * dz
-
-        R_z = rayleigh_rates_from_segments(self.rayleigh_dB, self.rayleigh_segments, z, xp=xp)
-        last_length = min(dz, max(0.0, self.length - (n_z - 1) * dz))
-        cell_lengths = xp.where(xp.arange(n_z) < n_z - 1, dz, last_length)
-
-        # one independent profile per core (circular gaussian phasors)
-        parts = []
-        for c in range(self.n_cores):
-            rng_c = self.bk.random_generator(
-                derive_seed(self.seed, component="fiber", core=c)
-            )
-            re = rng_c.standard_normal(n_z)
-            im = rng_c.standard_normal(n_z)
-            normals = xp.stack((re, im), axis=1)
-            parts.append(rayleigh_coefficients_from_normals(normals, R_z, cell_lengths))
-        profile = xp.stack(parts)
+        frequency = C / self.center_wl
+        native_xp, _ = real_arrays(xp.asarray(dz))
+        model = build_fiber(self.config, cell_length=dz, reference_temperature=293.15,
+                            frequency_min=frequency - self.sweep_range_hz/2,
+                            frequency_max=frequency + self.sweep_range_hz/2, xp=native_xp)
+        z = xp.asarray(model.cores[0].rayleigh.positions).copy()
+        n_z = len(z)
+        profile = xp.stack([core.rayleigh.coefficients for core in model.cores])
 
         # discrete reflectors (connectors, splices, etc)
         reflection = None
@@ -193,6 +185,7 @@ class FiberGenerator(PipelineStep):
         acq.fiber_profile = profile
         acq.attenuation_envelope = attenuation
         acq.ghost_profile = ghosts
+        acq.fiber_model = model
 
         # cache so subsequent sweeps reuse the same fiber
         self._cached_z = z
@@ -200,6 +193,7 @@ class FiberGenerator(PipelineStep):
         self._cached_profile = profile
         self._cached_atten = attenuation
         self._cached_ghosts = ghosts
+        self._cached_model = model
 
         acq.add_log("fiber", n_z=n_z, dz_mm=dz * 1e3,
                      attenuation_dB_km=self.attenuation_dB_km,
