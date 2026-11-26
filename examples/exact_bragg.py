@@ -1,6 +1,7 @@
 """Run with: python examples/exact_bragg.py --output out/bragg.h5
 
 Scalar static fiber, zero laser linewidth and the exact PyRayleigh solver.
+Read the coherent optical power terms back from HDF5.
 """
 
 import argparse
@@ -34,7 +35,8 @@ def main(output_path):
     derived = compute_instrument_derived(cfg)
     # Nominal range scale; the grating also has its own spectral phase.
     spacing = C/(2*guide.group_index*derived["fft_sweep_range_hz"])
-    options = dict(fiber=fiber, method="exact", loss_convention="background", fft_dz=spacing)
+    options = dict(fiber=fiber, method="exact", loss_convention="background",
+                   fft_dz=spacing, diagnostics=True)
 
     output_path = Path(output_path)
     reference_path = output_path.with_name(output_path.stem+"_reference"+output_path.suffix)
@@ -55,6 +57,15 @@ def main(output_path):
         spectrum, _ = reflectogram_from_acq(acq)
         print(f"{name}: sampled reflection peak at {wavelength*1e9:.6f} nm, "
               f"R = {reflectance[peak]:.4f}, FFT bins = {len(spectrum)}")
+        diagnostic = acq.fiber_diagnostics
+        # Total power includes the signed interference term.
+        for port in ("reflection", "transmission"):
+            total = np.mean(np.abs(getattr(diagnostic.total, port))**2)
+            direct = np.mean(np.abs(getattr(diagnostic.direct, port))**2)
+            residual = np.mean(np.abs(getattr(diagnostic.residual, port))**2)
+            interference = np.mean(getattr(diagnostic, port+"_interference"))
+            print(f"  Mean {port} terms (unit input): total={total:.6e}, direct={direct:.6e}, "
+                  f"residual={residual:.6e}, interference={interference:+.6e}")
     print(f"Sampled peak shift for 1 microstrain: {(peaks[1]-peaks[0])*1e12:.3f} pm")
     print(f"HDF5: {reference_path}, {output_path}")
     return reference, strained
