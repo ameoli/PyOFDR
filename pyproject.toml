@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "pyrayleigh @ git+https://github.com/ameoli/PyRayleigh.git@8ca4a021c50e188c357b96dec07c8ec012d45589",
+    "pyrayleigh @ git+https://github.com/ameoli/PyRayleigh.git@52c2f4205b9923c73b170b38edbf23f62701356f",
     "scipy>=1.10",
     "pyyaml>=6.0",
     "pydantic>=2.0",

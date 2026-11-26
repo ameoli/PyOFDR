@@ -10,6 +10,9 @@ from pyofdr.core.config_models import InstrumentConfig
 from pyofdr.source.swept_laser import SweptLaser
 
 
+_UNSET = object()
+
+
 def _state_input(state):
     if state is None or isinstance(state, FiberState):
         return state
@@ -19,8 +22,8 @@ def _state_input(state):
 
 
 def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
-                state: FiberState | Sequence[FiberState | None] | None = None, *, sweep_index=0, max_order=1,
-                xp=None) -> Acquisition:
+                state: FiberState | Sequence[FiberState | None] | None = None, *, sweep_index=0, max_order=_UNSET,
+                xp=None, method="truncated", loss_convention=None, denominator_tolerance=_UNSET) -> Acquisition:
     """One zero-linewidth sweep, before interferometry and detection.
 
     The supplied fiber and state are retained without rebuilding them.
@@ -28,6 +31,11 @@ def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
     Per-core inputs are stored as a tuple; shared state objects are retained.
     A time history is evaluated at each laboratory sample time by PyRayleigh.
     xp selects the native response backend; the laser still uses NumPy.
+    method="truncated" keeps max_order=1 by default. method="exact" requires
+    max_order to be omitted and loss_convention="background". It supports
+    one scalar core and a static or frozen state, including Bragg intervals.
+    denominator_tolerance is forwarded when supplied. PyRayleigh checks
+    these solver options and physical constraints.
     """
     if not isinstance(fiber, (Fiber, MultiCoreFiber)):
         raise TypeError("fiber must be a PyRayleigh Fiber or MultiCoreFiber")
@@ -44,9 +52,17 @@ def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
     if ((acq.nu_inst < fiber.frequency_min) | (acq.nu_inst > fiber.frequency_max)).any():
         raise ValueError("laser frequencies lie outside the declared fiber band")
     probe = laser.make_probe(acq, xp=xp)
-    acq.fiber_response = compute_response(fiber, probe, state, max_order=max_order, xp=xp)
+    options = {"method": method, "loss_convention": loss_convention}
+    if max_order is not _UNSET:
+        options["max_order"] = max_order
+    if denominator_tolerance is not _UNSET:
+        options["denominator_tolerance"] = denominator_tolerance
+    acq.fiber_response = compute_response(fiber, probe, state, xp=xp, **options)
     acq.fiber_model = fiber
     acq.fiber_state = state
-    acq.add_log("fiber_response", n_cores=fiber.n_cores if isinstance(fiber, MultiCoreFiber) else 1,
-                max_order=max_order)
+    if method == "truncated":
+        details = {"max_order": 1 if max_order is _UNSET else max_order}
+    else:
+        details = dict(options)
+    acq.add_log("fiber_response", n_cores=fiber.n_cores if isinstance(fiber, MultiCoreFiber) else 1, **details)
     return acq
