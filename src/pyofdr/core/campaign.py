@@ -50,8 +50,8 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
         sweeps, and solver options are recorded in each acquisition log.
     diagnostics : bool
         Keep exact/direct/residual data in each Acquisition.fiber_diagnostics.
-        Requires an external fiber, method="exact" and keep_acquisitions=True.
-        Diagnostic fields stay in memory; they are not yet stored in HDF5.
+        Requires an external fiber and method="exact". With output.path set,
+        diagnostics are stored per sweep, also with keep_acquisitions=False.
     fft_dz : float or None
         Optional nominal FFT spatial spacing [m] for the external fiber.
         None leaves the range calibration unset. The full campaign uses NumPy.
@@ -75,8 +75,6 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
 
     if not isinstance(diagnostics, bool):
         raise TypeError("diagnostics must be a bool")
-    if diagnostics and not keep_acquisitions:
-        raise ValueError("diagnostics is kept in memory; use keep_acquisitions=True")
     native = fiber is not None
     if native:
         if not isinstance(fiber, (Fiber, MultiCoreFiber)):

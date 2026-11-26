@@ -38,7 +38,7 @@ def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
     denominator_tolerance is forwarded when supplied. PyRayleigh checks
     these solver options and physical constraints.
     diagnostics=True requires method="exact" and keeps direct-consistent,
-    residual and interference data in acq.fiber_diagnostics, in memory only.
+    residual and interference data in acq.fiber_diagnostics.
     fiber_response is its total response, so later optics still use the exact
     field. The default call does not calculate or retain diagnostic fields.
     """

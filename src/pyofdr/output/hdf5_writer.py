@@ -17,6 +17,7 @@ Layout:
     /sweeps/0000/aux_signal     (n_t,) float32, present iff aux MZI enabled
     /sweeps/0000/strain_field   (n_z,) applied strain eps(z), if present
     /sweeps/0000/temperature_field (n_z,) applied dT(z) [K], if present
+    /sweeps/0000/fiber_response/diagnostics/direct  complex direct fields, if requested
     /sweeps/0000/log            JSON string
 """
 
@@ -30,7 +31,7 @@ from typing import Any
 
 import h5py
 import numpy as np
-from pyrayleigh import FiberState
+from pyrayleigh import DiagnosticResponse, FiberState
 
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.utils.seeding import SEED_SCHEME
@@ -134,6 +135,10 @@ class HDF5Writer:
 
     def write_sweep(self, acq: Acquisition, sweep_index: int) -> None:
         """Write one sweep's data."""
+        diagnostic = acq.fiber_diagnostics
+        if diagnostic is not None and (not isinstance(diagnostic, DiagnosticResponse)
+                                       or diagnostic.total is not acq.fiber_response):
+            raise ValueError("fiber_diagnostics must use fiber_response as its total")
         name = f"sweeps/{sweep_index:04d}"
         grp = self._file.create_group(name)
         grp.attrs["n_samples"] = acq.n_samples
@@ -151,6 +156,13 @@ class HDF5Writer:
             native.create_dataset("frequency", data=np.asarray(response.probe.frequency))
             if response.probe.time is not None:
                 native.create_dataset("time", data=np.asarray(response.probe.time))
+            if diagnostic is not None:
+                node = native.create_group("diagnostics")
+                node.attrs["metadata"] = json.dumps(diagnostic.metadata)
+                direct = node.create_group("direct")
+                for name in ("reflection", "transmission"):
+                    direct.create_dataset(name, data=np.asarray(getattr(diagnostic.direct, name)),
+                                          compression="gzip", compression_opts=4)
 
         if acq.strain_field is not None:
             grp.create_dataset("strain_field",  data=np.asarray(acq.strain_field))

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
-from pyrayleigh import (FiberState, Field, FieldTerm, MultiCoreResponse, Probe,
+from pyrayleigh import (DiagnosticResponse, FiberState, Field, FieldTerm, MultiCoreResponse, Probe,
                        Response, SpatialProfile, TimeHistory)
 from pyrayleigh.backends import real_arrays
 
@@ -89,6 +89,8 @@ def load_sweep(path: str | Path, sweep_index=0) -> Acquisition:
     Nominal sample times come from the saved clock. Fields absent from the
     requested sweep stay unset. The fiber model and laser field are external.
     Legacy field snapshots from fiber metadata apply only to sweep zero.
+    Saved total/direct fields reconstruct diagnostics without solving the fiber.
+    Diagnostic metadata uses JSON, so sequences are read back as lists.
     """
     if isinstance(sweep_index, bool) or not isinstance(sweep_index, Integral) or sweep_index < 0:
         raise ValueError("sweep_index must be a nonnegative integer")
@@ -144,6 +146,16 @@ def load_sweep(path: str | Path, sweep_index=0) -> Acquisition:
             reflection = node["reflection"][:]
             kind = Response if reflection.ndim == 1 else MultiCoreResponse
             acq.fiber_response = kind(probe, reflection=reflection, transmission=node["transmission"][:])
+            if "diagnostics" in node:
+                if kind is not Response:
+                    raise ValueError("saved diagnostics require a scalar response")
+                diagnostic = node["diagnostics"]
+                metadata = json.loads(diagnostic.attrs["metadata"])
+                if not isinstance(metadata, dict):
+                    raise ValueError("saved diagnostic metadata must be an object")
+                direct = Response(probe, reflection=diagnostic["direct/reflection"][:],
+                                  transmission=diagnostic["direct/transmission"][:])
+                acq.fiber_diagnostics = DiagnosticResponse(acq.fiber_response, direct, metadata)
             response_cores = 1 if kind is Response else acq.fiber_response.n_cores
             if n_cores is not None and n_cores != response_cores:
                 raise ValueError("saved response and signals have different core counts")
