@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from collections.abc import Sequence
 
 import numpy as np
-from pyrayleigh import Fiber, FiberState, MultiCoreFiber, MultiCoreResponse, Response
+from pyrayleigh import DiagnosticResponse, Fiber, FiberState, MultiCoreFiber, MultiCoreResponse, Response
 
 
 @dataclass
@@ -23,6 +23,7 @@ class Acquisition:
     fiber_model: Fiber | MultiCoreFiber | None = None
     fiber_state: FiberState | Sequence[FiberState | None] | None = None
     fiber_response: Response | MultiCoreResponse | None = None
+    fiber_diagnostics: DiagnosticResponse | None = field(default=None, kw_only=True)
 
     t: np.ndarray | None = None       # (n_t,), time samples [s]
     dt: float = 0.0                   # sample interval [s]

@@ -3,7 +3,7 @@
 from numbers import Integral
 from collections.abc import Sequence
 
-from pyrayleigh import Fiber, FiberState, MultiCoreFiber, compute_response
+from pyrayleigh import Fiber, FiberState, MultiCoreFiber, compute_response, compute_response_diagnostics
 
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config_models import InstrumentConfig
@@ -23,7 +23,8 @@ def _state_input(state):
 
 def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
                 state: FiberState | Sequence[FiberState | None] | None = None, *, sweep_index=0, max_order=_UNSET,
-                xp=None, method="truncated", loss_convention=None, denominator_tolerance=_UNSET) -> Acquisition:
+                xp=None, method="truncated", loss_convention=None, denominator_tolerance=_UNSET,
+                diagnostics=False) -> Acquisition:
     """One zero-linewidth sweep, before interferometry and detection.
 
     The supplied fiber and state are retained without rebuilding them.
@@ -36,7 +37,15 @@ def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
     one scalar core and a static or frozen state, including Bragg intervals.
     denominator_tolerance is forwarded when supplied. PyRayleigh checks
     these solver options and physical constraints.
+    diagnostics=True requires method="exact" and keeps direct-consistent,
+    residual and interference data in acq.fiber_diagnostics, in memory only.
+    fiber_response is its total response, so later optics still use the exact
+    field. The default call does not calculate or retain diagnostic fields.
     """
+    if not isinstance(diagnostics, bool):
+        raise TypeError("diagnostics must be a bool")
+    if diagnostics and (method != "exact" or max_order is not _UNSET):
+        raise ValueError("diagnostics requires method='exact' and max_order omitted")
     if not isinstance(fiber, (Fiber, MultiCoreFiber)):
         raise TypeError("fiber must be a PyRayleigh Fiber or MultiCoreFiber")
     state = _state_input(state)
@@ -57,12 +66,20 @@ def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
         options["max_order"] = max_order
     if denominator_tolerance is not _UNSET:
         options["denominator_tolerance"] = denominator_tolerance
-    acq.fiber_response = compute_response(fiber, probe, state, xp=xp, **options)
+    if diagnostics:
+        diagnostic_options = dict(options)
+        del diagnostic_options["method"]
+        acq.fiber_diagnostics = compute_response_diagnostics(fiber, probe, state, xp=xp, **diagnostic_options)
+        acq.fiber_response = acq.fiber_diagnostics.total
+    else:
+        acq.fiber_response = compute_response(fiber, probe, state, xp=xp, **options)
     acq.fiber_model = fiber
     acq.fiber_state = state
     if method == "truncated":
         details = {"max_order": 1 if max_order is _UNSET else max_order}
     else:
         details = dict(options)
+    if diagnostics:
+        details["diagnostics"] = True
     acq.add_log("fiber_response", n_cores=fiber.n_cores if isinstance(fiber, MultiCoreFiber) else 1, **details)
     return acq
