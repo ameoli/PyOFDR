@@ -21,7 +21,7 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
                  fiber: Fiber | MultiCoreFiber | None = None,
                  state: FiberState | Sequence[FiberState | None] | None = None, max_order=_UNSET,
                  fft_dz: float | None = None, method="truncated", loss_convention=None,
-                 denominator_tolerance=_UNSET) -> list[Acquisition]:
+                 denominator_tolerance=_UNSET, diagnostics=False) -> list[Acquisition]:
     """Run one or more sweeps and return the list of Acquisitions.
 
     The supplied fiber or generated legacy profile is reused across sweeps.
@@ -48,6 +48,10 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
         Exact requires loss_convention="background", one scalar core and a
         static or frozen state. The supplied fiber/state are reused across
         sweeps, and solver options are recorded in each acquisition log.
+    diagnostics : bool
+        Keep exact/direct/residual data in each Acquisition.fiber_diagnostics.
+        Requires an external fiber, method="exact" and keep_acquisitions=True.
+        Diagnostic fields stay in memory; they are not yet stored in HDF5.
     fft_dz : float or None
         Optional nominal FFT spatial spacing [m] for the external fiber.
         None leaves the range calibration unset. The full campaign uses NumPy.
@@ -69,12 +73,18 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
     from pyofdr.digitizer.adc import ADC
     from pyofdr.output.hdf5_writer import HDF5Writer
 
+    if not isinstance(diagnostics, bool):
+        raise TypeError("diagnostics must be a bool")
+    if diagnostics and not keep_acquisitions:
+        raise ValueError("diagnostics is kept in memory; use keep_acquisitions=True")
     native = fiber is not None
     if native:
         if not isinstance(fiber, (Fiber, MultiCoreFiber)):
             raise TypeError("fiber must be a PyRayleigh Fiber or MultiCoreFiber")
         state = _state_input(state)
         solver_options = {"method": method, "loss_convention": loss_convention}
+        if diagnostics:
+            solver_options["diagnostics"] = True
         if max_order is not _UNSET:
             solver_options["max_order"] = max_order
         if denominator_tolerance is not _UNSET:
@@ -83,8 +93,9 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
                                    or not math.isfinite(fft_dz) or fft_dz <= 0):
             raise ValueError("fft_dz must be a finite positive spatial spacing [m]")
     elif (state is not None or (max_order is not _UNSET and max_order != 1) or fft_dz is not None
-            or method != "truncated" or loss_convention is not None or denominator_tolerance is not _UNSET):
-        raise ValueError("state, max_order, fft_dz and solver options require an external fiber")
+            or method != "truncated" or loss_convention is not None or denominator_tolerance is not _UNSET
+            or diagnostics):
+        raise ValueError("state, max_order, fft_dz, solver options and diagnostics require an external fiber")
     if isinstance(cfg, InstrumentConfig):
         if not native and not isinstance(cfg, RootConfig):
             raise ValueError("InstrumentConfig requires an external fiber")
