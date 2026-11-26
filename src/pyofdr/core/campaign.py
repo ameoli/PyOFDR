@@ -13,14 +13,15 @@ from pyofdr import __version__
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config import compute_derived, compute_instrument_derived
 from pyofdr.core.config_models import InstrumentConfig, RootConfig
-from pyofdr.core.interrogation import _state_input, interrogate
+from pyofdr.core.interrogation import _UNSET, _state_input, interrogate
 logger = logging.getLogger(__name__)
 
 
 def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *,
                  fiber: Fiber | MultiCoreFiber | None = None,
-                 state: FiberState | Sequence[FiberState | None] | None = None, max_order=1,
-                 fft_dz: float | None = None) -> list[Acquisition]:
+                 state: FiberState | Sequence[FiberState | None] | None = None, max_order=_UNSET,
+                 fft_dz: float | None = None, method="truncated", loss_convention=None,
+                 denominator_tolerance=_UNSET) -> list[Acquisition]:
     """Run one or more sweeps and return the list of Acquisitions.
 
     The supplied fiber or generated legacy profile is reused across sweeps.
@@ -40,7 +41,13 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
         Independent cores can receive a sequence of states in core order.
         The sequence is copied once; PyRayleigh checks coupled-core constraints.
     max_order : int
-        Point reflection order for the supplied fiber (1, 2 or 3).
+        Point reflection order for the supplied fiber (1, 2 or 3), default 1
+        for method="truncated". Omit it for method="exact".
+    method, loss_convention, denominator_tolerance
+        Solver options for an external fiber, forwarded to interrogate.
+        Exact requires loss_convention="background", one scalar core and a
+        static or frozen state. The supplied fiber/state are reused across
+        sweeps, and solver options are recorded in each acquisition log.
     fft_dz : float or None
         Optional nominal FFT spatial spacing [m] for the external fiber.
         None leaves the range calibration unset. The full campaign uses NumPy.
@@ -67,11 +74,17 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
         if not isinstance(fiber, (Fiber, MultiCoreFiber)):
             raise TypeError("fiber must be a PyRayleigh Fiber or MultiCoreFiber")
         state = _state_input(state)
+        solver_options = {"method": method, "loss_convention": loss_convention}
+        if max_order is not _UNSET:
+            solver_options["max_order"] = max_order
+        if denominator_tolerance is not _UNSET:
+            solver_options["denominator_tolerance"] = denominator_tolerance
         if fft_dz is not None and (isinstance(fft_dz, bool) or not isinstance(fft_dz, Real)
                                    or not math.isfinite(fft_dz) or fft_dz <= 0):
             raise ValueError("fft_dz must be a finite positive spatial spacing [m]")
-    elif state is not None or max_order != 1 or fft_dz is not None:
-        raise ValueError("state, max_order and fft_dz require an external fiber")
+    elif (state is not None or (max_order is not _UNSET and max_order != 1) or fft_dz is not None
+            or method != "truncated" or loss_convention is not None or denominator_tolerance is not _UNSET):
+        raise ValueError("state, max_order, fft_dz and solver options require an external fiber")
     if isinstance(cfg, InstrumentConfig):
         if not native and not isinstance(cfg, RootConfig):
             raise ValueError("InstrumentConfig requires an external fiber")
@@ -124,7 +137,7 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
     with (HDF5Writer(output_path) if output_path else nullcontext()) as writer:
         for i in range(n_sweeps):
             if native:
-                acq = interrogate(settings, fiber, state, sweep_index=i, max_order=max_order)
+                acq = interrogate(settings, fiber, state, sweep_index=i, **solver_options)
                 for name in ("reflection", "transmission"):
                     if not np.all(np.isfinite(getattr(acq.fiber_response, name))):
                         raise ValueError(f"PyRayleigh {name} contains non-finite values in sweep {i}")
