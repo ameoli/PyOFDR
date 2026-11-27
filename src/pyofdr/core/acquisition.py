@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from collections.abc import Sequence
 
 import numpy as np
-from pyrayleigh import DiagnosticResponse, Fiber, FiberState, MultiCoreFiber, MultiCoreResponse, Response
+from pyrayleigh import DiagnosticResponse, Fiber, FiberState, MultiCoreFiber, MultiCoreResponse, Probe, Response
 
 
 @dataclass
@@ -28,6 +28,7 @@ class Acquisition:
     t: np.ndarray | None = None       # (n_t,), time samples [s]
     dt: float = 0.0                   # sample interval [s]
     n_samples: int = 0
+    pretrigger_samples: int = field(default=0, kw_only=True)  # pending history before the recorded sweep
     frequency_step_hz: float = 0.0   # nominal linear chirp increment per ADC sample
     fft_sweep_range_hz: float = 0.0  # N * frequency_step_hz, not (N-1) increments
     fft_dz: float = 0.0             # unpadded FFT spatial spacing [m]
@@ -52,3 +53,37 @@ class Acquisition:
 
     def add_log(self, step_name, **kwargs):
         self.log.append({"step": step_name, **kwargs})
+
+    def discard_pretrigger(self):
+        """Keep the recorded samples after the causal receiver has processed its history."""
+        count = self.pretrigger_samples
+        if count == 0:
+            return
+        if count < 0 or count >= self.n_samples:
+            raise ValueError("pretrigger must leave at least one recorded sample")
+        response = self.fiber_response
+        if response is not None:
+            old = response.probe
+            probe = Probe(old.frequency[count:], None if old.time is None else old.time[count:])
+
+            def cropped(value):
+                return type(value)(probe, reflection=value.reflection[..., count:],
+                                   transmission=value.transmission[..., count:])
+
+            if self.fiber_diagnostics is None:
+                self.fiber_response = cropped(response)
+            else:
+                data = self.fiber_diagnostics
+                self.fiber_diagnostics = DiagnosticResponse(cropped(data.total), cropped(data.direct),
+                                                           metadata=data.metadata)
+                self.fiber_response = self.fiber_diagnostics.total
+        for name in ("t", "E_source", "nu_inst", "nu_noise", "photocurrent_main",
+                     "analog_main", "digital_main", "aux_signal"):
+            value = getattr(self, name)
+            if value is not None:
+                setattr(self, name, value[..., count:])
+        self.aux_valid_start = max(0, self.aux_valid_start-count)
+        self.n_samples -= count
+        self.fft_sweep_range_hz = self.n_samples*self.frequency_step_hz
+        self.pretrigger_samples = 0
+        self.add_log("capture", pretrigger_samples=count, n_samples=self.n_samples)

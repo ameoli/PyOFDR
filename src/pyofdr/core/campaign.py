@@ -12,7 +12,7 @@ from pyrayleigh import Fiber, FiberState, MultiCoreFiber
 from pyofdr import __version__
 from pyofdr.core.acquisition import Acquisition
 from pyofdr.core.config import compute_derived, compute_instrument_derived
-from pyofdr.core.config_models import InstrumentConfig, RootConfig
+from pyofdr.core.config_models import ADCConfig, InstrumentConfig, RootConfig
 from pyofdr.core.interrogation import _UNSET, _state_input, interrogate
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,11 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
     fiber, state
         External PyRayleigh objects, reused across all sweeps. Time histories
         are sampled in laboratory time. Native sweeps require linewidth zero.
+        adc.pretrigger_samples extends the configured laser ramp before t=0
+        to settle the causal receiver. These samples are discarded before ADC;
+        the supplied fiber band must cover the extended probe as well.
+        Each sweep has its own ramp prehistory; receiver state is not carried
+        from the previous acquisition. This option requires an external fiber.
         Independent cores can receive a sequence of states in core order.
         The sequence is copied once; PyRayleigh checks coupled-core constraints.
     max_order : int
@@ -101,6 +106,8 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
     if native:
         settings = InstrumentConfig(**cfg)
         cfg = settings.model_dump()
+    elif ADCConfig(**cfg.get("adc", {})).pretrigger_samples:
+        raise NotImplementedError("adc.pretrigger_samples requires an external PyRayleigh fiber")
 
     output_path = cfg.get("output", {}).get("path")
     if not keep_acquisitions and not output_path:

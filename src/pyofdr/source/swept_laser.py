@@ -57,6 +57,7 @@ class SweptLaser(InstrumentStep):
         self.ripple_amp = source["sweep_ripple_amplitude"]
         self.ripple_period = source["sweep_ripple_period"]
         self.sample_rate = self.config["adc"]["sample_rate"]
+        self.pretrigger_samples = self.config["adc"]["pretrigger_samples"]
         self.seed = self.config["simulation"]["seed"]
 
         # derived quantities
@@ -67,10 +68,11 @@ class SweptLaser(InstrumentStep):
         self.gamma = self.sweep_range_hz / self.sweep_duration   # Hz/s
 
     def process(self, acq: Acquisition) -> Acquisition:
+        """Generate the configured ramp, including any samples before t=0."""
         xp = self.bk.xp
         dt = 1.0 / self.sample_rate
-        n_samples = sweep_sample_count(self.sweep_duration, self.sample_rate)
-        t = xp.arange(n_samples) * dt
+        n_samples = sweep_sample_count(self.sweep_duration, self.sample_rate) + self.pretrigger_samples
+        t = (xp.arange(n_samples) - self.pretrigger_samples) * dt
 
         # instantanous frequency: linear ramp + optional nonlinearity
         nu_start = self.nu_center - self.sweep_range_hz / 2.0
@@ -115,6 +117,9 @@ class SweptLaser(InstrumentStep):
         else:
             P_t = self.power  # scalar, broadcasts fine
 
+        if self.pretrigger_samples and self.envelope_edge_dB > 0 and xp.any(P_t < 0.):
+            raise ValueError("source power envelope becomes negative during the pretrigger")
+
         # RIN -- relative intensity noise.  Modelled as white multiplicative
         # noise on optical power: P(t) = P0*(1 + n(t)),  n ~ N(0, sigma_rin),
         # sigma_rin = sqrt(RIN_linear * BW).
@@ -137,6 +142,7 @@ class SweptLaser(InstrumentStep):
         acq.t = t
         acq.dt = dt
         acq.n_samples = n_samples
+        acq.pretrigger_samples = self.pretrigger_samples
         acq.frequency_step_hz = self.gamma * dt
         acq.fft_sweep_range_hz = n_samples * acq.frequency_step_hz
         acq.nu_inst = nu_inst

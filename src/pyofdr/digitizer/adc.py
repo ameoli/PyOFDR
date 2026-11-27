@@ -2,6 +2,9 @@
 
 Ideal uniform floor quantizer + clipping at +/- V_range/2.
 
+Native pretrigger samples have already passed through the causal receiver.
+They are discarded here before digitization, keeping the recorded sweep grid.
+
 Optional ENOB (effective number of bits) injects extra Gaussian noise
 *before* quantization, so that the total RMS noise matches what a
 2^enob-level ideal ADC would have. This is the standard way to lump
@@ -110,6 +113,8 @@ class ADC(InstrumentStep):
     def process(self, acq: Acquisition) -> Acquisition:
         if acq.analog_main is None:
             raise RuntimeError("ADC: analog_main is None")
+
+        acq.discard_pretrigger()
 
         xp = self.bk.xp
         analog = acq.analog_main

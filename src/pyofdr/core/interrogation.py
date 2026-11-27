@@ -32,6 +32,8 @@ def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
     Per-core inputs are stored as a tuple; shared state objects are retained.
     A time history is evaluated at each laboratory sample time by PyRayleigh.
     xp selects the native response backend; the laser still uses NumPy.
+    adc.pretrigger_samples includes earlier ramp samples in this acquisition.
+    The native campaign discards them at the ADC after causal filtering.
     method="truncated" keeps max_order=1 by default. method="exact" requires
     max_order to be omitted and loss_convention="background". It supports
     one scalar core and a static or frozen state, including Bragg intervals.
@@ -61,6 +63,8 @@ def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
         raise NotImplementedError("native interrogation currently requires source.linewidth=0")
     acq = laser.process(Acquisition(sweep_index=sweep_index))
     if ((acq.nu_inst < fiber.frequency_min) | (acq.nu_inst > fiber.frequency_max)).any():
+        if acq.pretrigger_samples:
+            raise ValueError("laser and pretrigger frequencies lie outside the declared fiber band")
         raise ValueError("laser frequencies lie outside the declared fiber band")
     probe = laser.make_probe(acq, xp=xp)
     options = {"method": method, "loss_convention": loss_convention}
