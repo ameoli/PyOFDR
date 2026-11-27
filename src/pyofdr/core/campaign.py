@@ -42,12 +42,12 @@ def run_campaign(cfg: dict | InstrumentConfig, keep_acquisitions: bool = True, *
         The sequence is copied once; PyRayleigh checks coupled-core constraints.
     max_order : int
         Point reflection order for the supplied fiber (1, 2 or 3), default 1
-        for method="truncated". Omit it for method="exact".
+        for method="truncated". Omit it for "exact" and "direct_consistent".
     method, loss_convention, denominator_tolerance
         Solver options for an external fiber, forwarded to interrogate.
-        Exact requires loss_convention="background", one scalar core and a
-        static or frozen state. The supplied fiber/state are reused across
-        sweeps, and solver options are recorded in each acquisition log.
+        Exact and direct_consistent require loss_convention="background",
+        one scalar core and a static or frozen state. The supplied fiber/state
+        are reused across sweeps, and solver options are recorded in each log.
     diagnostics : bool
         Keep exact/direct/residual data in each Acquisition.fiber_diagnostics.
         Requires an external fiber and method="exact". With output.path set,

@@ -35,6 +35,8 @@ def interrogate(config: dict | InstrumentConfig, fiber: Fiber | MultiCoreFiber,
     method="truncated" keeps max_order=1 by default. method="exact" requires
     max_order to be omitted and loss_convention="background". It supports
     one scalar core and a static or frozen state, including Bragg intervals.
+    method="direct_consistent" uses the same local transmissions while keeping
+    one reflection per physical block, with the same scalar static restrictions.
     denominator_tolerance is forwarded when supplied. PyRayleigh checks
     these solver options and physical constraints.
     diagnostics=True requires method="exact" and keeps direct-consistent,
